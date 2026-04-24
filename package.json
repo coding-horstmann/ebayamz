@@ -1,0 +1,36 @@
+{
+  "name": "bookscout-de",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BookScout DE – Online-Arbitrage-Tool für gebrauchte Bücher (eBay.de → Amazon.de)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "worker": "ts-node --transpile-only src/worker/index.ts",
+    "worker:build": "tsc -p tsconfig.worker.json",
+    "worker:start": "node dist/worker/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "next": "14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.10",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.15",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
