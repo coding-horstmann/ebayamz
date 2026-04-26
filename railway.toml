@@ -1,9 +1,5 @@
 [build]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 
-[services.web]
+[deploy]
 startCommand = "npm run build && npm start"
-
-[services.worker]
-startCommand = "npx ts-node --transpile-only src/worker/index.ts"
-cronSchedule = "0 3 * * *"
