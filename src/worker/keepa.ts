@@ -95,6 +95,7 @@ function pickIsbn13(p: KeepaRawProduct): string | null {
 
 function isLikelyBookProduct(p: KeepaRawProduct): boolean {
   const group = (p.productGroup ?? "").toLowerCase();
+  if (!group) return true;
   return group.includes("book") || group.includes("buch");
 }
 
