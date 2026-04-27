@@ -79,6 +79,8 @@ function requireEnv(name: string): string {
   return v;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /* ----------------------------- OAuth ----------------------------- */
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -98,34 +100,54 @@ export async function getEbayAccessToken(): Promise<string> {
     scope: OAUTH_SCOPE,
   }).toString();
 
-  const res = await fetch(OAUTH_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basic}`,
-    },
-    body,
-  });
+  // OAuth läuft selten, aber bei 504 / timeout ist ein kurzer Retry sinnvoll.
+  const maxAttempts = 3;
+  let lastErr: unknown;
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`eBay OAuth Fehler ${res.status}: ${txt.slice(0, 300)}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetch(OAUTH_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${basic}`,
+        },
+        body,
+      });
+
+      if (res.status >= 500 && res.status <= 599 && attempt < maxAttempts - 1) {
+        await sleep(500 * (attempt + 1));
+        continue;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`eBay OAuth Fehler ${res.status}: ${txt.slice(0, 300)}`);
+      }
+
+      const json = (await res.json()) as EbayTokenResponse;
+      cachedToken = {
+        value: json.access_token,
+        expiresAt: Date.now() + json.expires_in * 1000,
+      };
+      return cachedToken.value;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts - 1) {
+        await sleep(500 * (attempt + 1));
+      }
+    }
   }
 
-  const json = (await res.json()) as EbayTokenResponse;
-  cachedToken = {
-    value: json.access_token,
-    expiresAt: Date.now() + json.expires_in * 1000,
-  };
-  return cachedToken.value;
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(`eBay OAuth nach ${maxAttempts} Versuchen fehlgeschlagen: ${String(lastErr)}`);
 }
 
 /* ---------------------------- Search ----------------------------- */
 
 const BASE_DELAY_MS = Number(process.env.EBAY_API_DELAY_MS ?? "1100");
 const EBAY_FETCH_RETRIES = 3;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchWithRetry(
   url: string,

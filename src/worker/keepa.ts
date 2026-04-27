@@ -93,6 +93,29 @@ function pickIsbn13(p: KeepaRawProduct): string | null {
   return null;
 }
 
+function isValidIsbn10(isbn: string): boolean {
+  const d = isbn.replace(/-/g, "");
+  if (!/^\d{9}[\dXx]$/.test(d)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(d[i], 10) * (10 - i);
+  }
+  const last = d[9].toUpperCase();
+  sum += last === "X" ? 10 : parseInt(last, 10);
+  return sum % 11 === 0;
+}
+
+function toIsbn13(isbn10: string): string {
+  const d = isbn10.replace(/-/g, "").slice(0, 9);
+  const base = "978" + d;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += parseInt(base[i], 10) * (i % 2 === 0 ? 1 : 3);
+  }
+  const check = (10 - (sum % 10)) % 10;
+  return base + check;
+}
+
 function isLikelyBookProduct(p: KeepaRawProduct): boolean {
   const group = (p.productGroup ?? "").toLowerCase();
   if (!group) return true;
@@ -224,7 +247,13 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
     for (const p of json.products ?? []) {
       if (!isLikelyBookProduct(p)) continue;
 
-      const isbn13 = pickIsbn13(p);
+      let isbn13 = pickIsbn13(p);
+
+      // Fallback: ISBN-10 (oft identisch zur ASIN) in ISBN-13 umrechnen,
+      // damit eBay exakt per gtin= suchen kann.
+      if (!isbn13 && /^(\d{9}[\dXx])$/.test(p.asin) && isValidIsbn10(p.asin)) {
+        isbn13 = toIsbn13(p.asin);
+      }
 
       const usedCents = p.stats?.current?.[USED_INDEX];
       const amazon_price = centsToEuro(usedCents);
