@@ -1,6 +1,5 @@
 import FilterPanel from "./components/FilterPanel";
 import ProductTable from "./components/ProductTable";
-import WorkerButton from "./components/WorkerButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,7 +21,6 @@ export default function Page({ searchParams }: { searchParams: SearchParams }) {
 
   return (
     <div className="space-y-6">
-      <WorkerButton />
       <FilterPanel initial={filters} />
       <ProductTable filters={filters} />
     </div>

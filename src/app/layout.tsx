@@ -32,8 +32,11 @@ export default function RootLayout({
           </header>
           <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">{children}</main>
           <footer className="border-t border-slate-200 bg-white">
-            <div className="mx-auto max-w-7xl px-4 py-4 text-xs text-slate-500 sm:px-6">
-              Daten: Keepa &amp; eBay Browse API. Preise ohne Gewähr.
+            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 text-xs text-slate-500 sm:px-6">
+              <span>Daten: Keepa &amp; eBay Browse API. Preise ohne Gewähr.</span>
+              <a href="/admin" className="font-medium hover:text-slate-800">
+                Einstellungen
+              </a>
             </div>
           </footer>
         </div>

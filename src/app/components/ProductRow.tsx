@@ -64,47 +64,34 @@ export default function ProductRow({ product: p }: { product: ProductRowType }) 
 
   return (
     <tr className={`${rowBg(p)} align-top`}>
+      {/* Bilder – nur vorhandene anzeigen, keine leeren Platzhalter */}
       <td className="whitespace-nowrap px-3 py-3">
-        <div className="flex gap-1">
+        <div className="flex flex-col gap-2">
           {p.image_amazon ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={p.image_amazon}
               alt="Amazon"
-              width={60}
-              height={80}
-              className="h-20 w-[60px] rounded border border-slate-200 bg-white object-contain"
+              className="h-36 w-24 rounded border border-slate-200 bg-white object-contain"
               loading="lazy"
             />
           ) : (
-            <div className="h-20 w-[60px] rounded border border-dashed border-slate-300 bg-slate-50" />
+            <div className="h-36 w-24 rounded border border-dashed border-slate-300 bg-slate-50" />
           )}
           {p.image_ebay ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={p.image_ebay}
               alt="eBay"
-              width={60}
-              height={80}
-              className="h-20 w-[60px] rounded border border-slate-200 bg-white object-contain"
+              className="h-24 w-16 rounded border border-slate-200 bg-white object-contain"
               loading="lazy"
             />
-          ) : (
-            <div className="h-20 w-[60px] rounded border border-dashed border-slate-300 bg-slate-50" />
-          )}
-        </div>
-        <div className="mt-2 w-[124px]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={keepaChart}
-            alt="Keepa Chart"
-            className="w-full rounded border border-slate-200 bg-white"
-            loading="lazy"
-          />
+          ) : null}
         </div>
       </td>
 
-      <td className="max-w-sm px-3 py-3">
+      {/* Titel + Meta + Links + Keepa-Chart */}
+      <td className="max-w-md px-3 py-3">
         <div className="font-medium text-slate-900">
           {p.title ?? <span className="text-slate-400">Kein Titel</span>}
         </div>
@@ -115,6 +102,35 @@ export default function ProductRow({ product: p }: { product: ProductRowType }) 
               {" · "}ISBN: <span className="font-mono">{p.isbn13}</span>
             </>
           )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <a
+            href={amazonUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Amazon öffnen
+          </a>
+          {p.ebay_url ? (
+            <a
+              href={p.ebay_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              eBay öffnen
+            </a>
+          ) : null}
+        </div>
+        <div className="mt-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={keepaChart}
+            alt="Keepa Chart"
+            className="h-auto w-full max-w-[360px] rounded border border-slate-200 bg-white"
+            loading="lazy"
+          />
         </div>
       </td>
 
@@ -173,7 +189,10 @@ export default function ProductRow({ product: p }: { product: ProductRowType }) 
 
       <td className="whitespace-nowrap px-3 py-3 text-right">{fmtInt(p.bsr)}</td>
 
-      <td className="whitespace-nowrap px-3 py-3 text-right">
+      <td
+        className="whitespace-nowrap px-3 py-3 text-right"
+        title={p.monthly_sales ? undefined : "Keine Verkaufsdaten von Keepa verfügbar"}
+      >
         {fmtInt(p.monthly_sales)}
       </td>
 
