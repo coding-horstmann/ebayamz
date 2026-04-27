@@ -61,6 +61,8 @@ type KeepaRawProduct = {
   productGroup?: string | null;
 };
 
+type KeepaSelection = Record<string, unknown>;
+
 function requireKey(): string {
   const k = process.env.KEEPA_API_KEY;
   if (!k) throw new Error("KEEPA_API_KEY fehlt.");
@@ -136,12 +138,7 @@ export async function keepaFindAsins(opts: {
   // Mindestmenge an und schneiden das Ergebnis danach auf `limit` zurück.
   const perPage = Math.min(Math.max(opts.limit, 50), 10000);
 
-  const selection = {
-    // Product-Finder-Filter gemäß Keepa-API:
-    // - categories_include statt `category`
-    // - productGroup "Book" als zusätzliche Absicherung
-    categories_include: [CATEGORY_BOOKS_DE],
-    productGroup: ["Book"],
+  const baseSelection = {
     current_USED_gte: minCents,
     sort: ["current_SALES", "asc"],
     // Nur Produkte mit einer Amazon-Verkaufsrangliste (liefert BSR-Kandidaten):
@@ -150,24 +147,45 @@ export async function keepaFindAsins(opts: {
     page: 0,
   };
 
-  const url =
-    `${KEEPA_BASE}/query` +
-    `?key=${encodeURIComponent(key)}` +
-    `&domain=${DOMAIN_DE}` +
-    `&selection=${encodeURIComponent(JSON.stringify(selection))}`;
+  const selections: KeepaSelection[] = [
+    // Primär: über Root-Kategorie Bücher DE.
+    { ...baseSelection, rootCategory: [CATEGORY_BOOKS_DE] },
+    // Fallback 1: direkte Kategorie-Inklusion.
+    { ...baseSelection, categories_include: [CATEGORY_BOOKS_DE] },
+    // Fallback 2: Legacy-Query (lief in manchen Accounts stabiler).
+    { ...baseSelection, category: CATEGORY_BOOKS_DE },
+  ];
 
-  const res = await fetch(url, { method: "GET" });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Keepa /query Fehler ${res.status}: ${body.slice(0, 300)}`);
-  }
-  const json = (await res.json()) as KeepaFinderResponse;
-  if (json.error) {
-    throw new Error(`Keepa /query Fehler: ${json.error.type ?? ""} ${json.error.message ?? ""}`);
+  let lastError: Error | null = null;
+
+  for (const selection of selections) {
+    const url =
+      `${KEEPA_BASE}/query` +
+      `?key=${encodeURIComponent(key)}` +
+      `&domain=${DOMAIN_DE}` +
+      `&selection=${encodeURIComponent(JSON.stringify(selection))}`;
+
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      lastError = new Error(`Keepa /query Fehler ${res.status}: ${body.slice(0, 300)}`);
+      continue;
+    }
+
+    const json = (await res.json()) as KeepaFinderResponse;
+    if (json.error) {
+      lastError = new Error(
+        `Keepa /query Fehler: ${json.error.type ?? ""} ${json.error.message ?? ""}`
+      );
+      continue;
+    }
+
+    const asins = (json.asinList ?? []).slice(0, opts.limit);
+    if (asins.length > 0) return asins;
   }
 
-  const asins = (json.asinList ?? []).slice(0, opts.limit);
-  return asins;
+  if (lastError) throw lastError;
+  return [];
 }
 
 /**
