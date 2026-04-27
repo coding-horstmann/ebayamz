@@ -131,6 +131,10 @@ export async function keepaFindAsins(opts: {
 }): Promise<string[]> {
   const key = requireKey();
   const minCents = Math.round(opts.minUsedPriceEur * 100);
+  // Keepa erlaubt sehr kleine perPage-Werte nicht zuverlässig.
+  // Für Testläufe mit kleinem `limit` fragen wir deshalb eine sinnvolle
+  // Mindestmenge an und schneiden das Ergebnis danach auf `limit` zurück.
+  const perPage = Math.min(Math.max(opts.limit, 10), 10000);
 
   const selection = {
     category: CATEGORY_BOOKS_DE,
@@ -138,7 +142,7 @@ export async function keepaFindAsins(opts: {
     sort: ["current_SALES", "asc"],
     // Nur Produkte mit einer Amazon-Verkaufsrangliste (liefert BSR-Kandidaten):
     current_SALES_gte: 1,
-    perPage: Math.min(opts.limit, 10000),
+    perPage,
     page: 0,
   };
 
