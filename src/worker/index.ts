@@ -84,6 +84,8 @@ async function runEbayScan(log: LogFn): Promise<EbayScanStats> {
   let hits = 0;
   let deals = 0;
   let consecutiveRateLimits = 0;
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
 
   for (const p of candidates) {
     await applyRateLimitBackoff(consecutiveRateLimits);
@@ -98,6 +100,7 @@ async function runEbayScan(log: LogFn): Promise<EbayScanStats> {
 
       scanned++;
       consecutiveRateLimits = 0;
+      consecutiveErrors = 0;
 
       if (hit) {
         hits++;
@@ -122,11 +125,20 @@ async function runEbayScan(log: LogFn): Promise<EbayScanStats> {
         }
         continue;
       }
+
+      consecutiveErrors++;
       log(
-        `[eBay] Fehler bei ASIN=${p.asin}: ${
+        `[eBay] Fehler bei ASIN=${p.asin} (#${consecutiveErrors}): ${
           err instanceof Error ? err.message : String(err)
         }`
       );
+
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        log(
+          `[eBay] ${MAX_CONSECUTIVE_ERRORS}x hintereinander Fehler (kein 429) – eBay-Scan wird abgebrochen.`
+        );
+        return { scanned, hits, deals, aborted: true };
+      }
     }
   }
 

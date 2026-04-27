@@ -101,7 +101,7 @@ export async function getEbayAccessToken(): Promise<string> {
   }).toString();
 
   // OAuth läuft selten, aber bei 504 / timeout ist ein kurzer Retry sinnvoll.
-  const maxAttempts = 3;
+  const maxAttempts = 5;
   let lastErr: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -116,7 +116,8 @@ export async function getEbayAccessToken(): Promise<string> {
       });
 
       if (res.status >= 500 && res.status <= 599 && attempt < maxAttempts - 1) {
-        await sleep(500 * (attempt + 1));
+        // Bei 504 von eBay Identity CDN länger warten bevor Retry.
+        await sleep(5000 * (attempt + 1));
         continue;
       }
 
@@ -134,7 +135,8 @@ export async function getEbayAccessToken(): Promise<string> {
     } catch (err) {
       lastErr = err;
       if (attempt < maxAttempts - 1) {
-        await sleep(500 * (attempt + 1));
+        // Bei Netzwerk-Fehlern ebenfalls exponentiell steigern.
+        await sleep(5000 * (attempt + 1));
       }
     }
   }
