@@ -10,6 +10,7 @@
 const OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token";
 const OAUTH_SCOPE = "https://api.ebay.com/oauth/api_scope";
 const SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search";
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export type EbayConditionCategory = "NEW" | "USED";
 
@@ -81,6 +82,17 @@ function requireEnv(name: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ----------------------------- OAuth ----------------------------- */
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -100,17 +112,18 @@ export async function getEbayAccessToken(): Promise<string> {
     scope: OAUTH_SCOPE,
   }).toString();
 
-  // OAuth läuft selten, aber bei 504 / timeout ist ein kurzer Retry sinnvoll.
+  // OAuth läuft selten, aber bei 504 / timeout ist ein Retry sinnvoll.
   const maxAttempts = 5;
   let lastErr: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const res = await fetch(OAUTH_URL, {
+      const res = await fetchWithTimeout(OAUTH_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Authorization: `Basic ${basic}`,
+          "User-Agent": "BookScout-Worker/1.0",
         },
         body,
       });
@@ -134,6 +147,9 @@ export async function getEbayAccessToken(): Promise<string> {
       return cachedToken.value;
     } catch (err) {
       lastErr = err;
+      // Bei jedem Fehler (Netzwerk oder 5xx) den Token-Cache leeren,
+      // damit beim nächsten Produkt nicht der alte hängende Request wiederverwendet wird.
+      cachedToken = null;
       if (attempt < maxAttempts - 1) {
         // Bei Netzwerk-Fehlern ebenfalls exponentiell steigern.
         await sleep(5000 * (attempt + 1));
@@ -159,7 +175,7 @@ async function fetchWithRetry(
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetchWithTimeout(url, init);
       // 5xx sind oft transient - kurz warten und nochmal probieren.
       if (res.status >= 500 && res.status <= 599 && attempt < retries) {
         await sleep(300 * (attempt + 1));
@@ -299,6 +315,7 @@ export async function searchCheapestBook(opts: SearchOpts): Promise<EbayHit | nu
         "X-EBAY-C-MARKETPLACE-ID": marketplace,
         "Content-Type": "application/json",
         Accept: "application/json",
+        "User-Agent": "BookScout-Worker/1.0",
       },
     });
 
