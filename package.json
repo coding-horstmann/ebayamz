@@ -10,7 +10,8 @@
     "lint": "next lint",
     "worker": "ts-node --transpile-only src/worker/index.ts",
     "worker:build": "tsc -p tsconfig.worker.json",
-    "worker:start": "node dist/worker/index.js"
+    "worker:start": "node dist/worker/index.js",
+    "railway:worker": "npm run worker:build && npm run worker:start"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -31,6 +32,6 @@
     "typescript": "^5.6.3"
   },
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=20.11.0"
   }
 }

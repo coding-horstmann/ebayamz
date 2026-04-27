@@ -72,14 +72,46 @@ Suchstrategie pro Produkt: ISBN-13 via `gtin=`, sonst `q=` mit den ersten
 
 ## 5. Deployment auf Railway
 
-`railway.toml` definiert zwei Services – Railway erkennt sie automatisch:
+`railway.toml` enthält den Standard-Start für den **Web-Service**:
 
 - `web` – Next.js Frontend (`npm run build && npm start`).
-- `worker` – Cron-Service, startet täglich um `0 3 * * *`.
 
-Beide Services brauchen dieselben ENV-Variablen (Keepa + eBay + Supabase).
-Nur der Web-Service braucht zusätzlich `BOOKSCOUT_USER` /
-`BOOKSCOUT_PASSWORD`, um das Frontend zu schützen.
+Für den **Cron-Worker-Service** musst du in Railway explizit einen anderen
+Start-Command setzen, damit nicht versehentlich nur Next.js gestartet wird.
+
+### Railway Setup (empfohlen)
+
+1. **Zwei Services in Railway anlegen**
+   - `ebayamz` (Web)
+   - `giving-embrace` (Cron Worker)
+
+2. **Web-Service (`ebayamz`)**
+   - Start Command: `npm run build && npm start`
+   - Public Networking: an
+   - Cron: aus
+
+3. **Worker-Service (`giving-embrace`)**
+   - Cron Schedule: `0 3 * * *`
+   - Start Command: `npm run railway:worker`
+   - Public Networking: aus (nicht nötig)
+   - Hinweis: Der Worker-Prozess beendet sich nach dem Lauf absichtlich selbst.
+
+4. **Node-Version**
+   - `package.json` setzt `engines.node` auf `>=20.11.0`.
+   - Beim Deploy sollte Railway daher Node 20+ verwenden.
+
+5. **ENV-Variablen**
+   - Beide Services brauchen:
+     `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_MARKETPLACE_ID`,
+     `EBAY_API_DELAY_MS`, `KEEPA_API_KEY`, `SUPABASE_URL`,
+     `SUPABASE_SERVICE_ROLE_KEY`, `MIN_AMZ_USED_PRICE`, `MAX_SYNC_LIMIT`.
+   - Nur Web zusätzlich:
+     `BOOKSCOUT_USER`, `BOOKSCOUT_PASSWORD` (optional).
+
+Warum das wichtig ist:
+Wenn der Cron-Service als Start-Command `npm run build && npm start` hat,
+dann startet um 03:00 Uhr nur ein Webserver. Der eigentliche Job
+(`runWorker()`) läuft dann nicht als geplanter Worker-Lauf.
 
 ---
 
