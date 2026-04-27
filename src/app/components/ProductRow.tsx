@@ -61,131 +61,141 @@ function roiClass(p: ProductRowType): string {
 export default function ProductRow({ product: p }: { product: ProductRowType }) {
   const amazonUrl = `https://www.amazon.de/dp/${p.asin}`;
   const keepaChart = `https://graph.keepa.com/pricehistory.png?asin=${p.asin}&domain=3&salesrank=1&used=1&range=365`;
+  const bg = rowBg(p);
 
   return (
-    <tr className={`${rowBg(p)} align-top`}>
-      {/* Bilder – nur eBay anzeigen wenn vorhanden, Amazon-Bild entfernt */}
-      <td className="whitespace-nowrap px-3 py-3">
-        {p.image_ebay ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={p.image_ebay}
-            alt="eBay"
-            className="h-36 w-24 rounded border border-slate-200 bg-white object-contain"
-            loading="lazy"
-          />
-        ) : null}
-      </td>
+    <>
+      {/* Zeile 1: Daten */}
+      <tr className={`${bg} align-top`}>
+        {/* eBay-Bild */}
+        <td className="whitespace-nowrap px-3 py-3">
+          {p.image_ebay ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={p.image_ebay}
+              alt="eBay"
+              className="h-36 w-24 rounded border border-slate-200 bg-white object-contain"
+              loading="lazy"
+            />
+          ) : null}
+        </td>
 
-      {/* Titel + Meta + Links + Keepa-Chart */}
-      <td className="max-w-md px-3 py-3">
-        <div className="font-medium text-slate-900">
-          {p.title ?? <span className="text-slate-400">Kein Titel</span>}
-        </div>
-        <div className="mt-1 text-xs text-slate-500">
-          ASIN: <span className="font-mono">{p.asin}</span>
-          {p.isbn13 && (
-            <>
-              {" · "}ISBN: <span className="font-mono">{p.isbn13}</span>
-            </>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <a
-            href={amazonUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Amazon öffnen
-          </a>
-          {p.ebay_url ? (
+        {/* Titel + Meta + Links */}
+        <td className="max-w-md px-3 py-3">
+          <div className="font-medium text-slate-900">
+            {p.title ?? <span className="text-slate-400">Kein Titel</span>}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            ASIN: <span className="font-mono">{p.asin}</span>
+            {p.isbn13 && (
+              <>
+                {" · "}ISBN: <span className="font-mono">{p.isbn13}</span>
+              </>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
             <a
-              href={p.ebay_url}
+              href={amazonUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
-              eBay öffnen
+              Amazon öffnen
             </a>
-          ) : null}
-        </div>
-        <div className="mt-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={keepaChart}
-            alt="Keepa Chart"
-            className="h-auto w-full max-w-[360px] rounded border border-slate-200 bg-white"
-            loading="lazy"
-          />
-        </div>
-      </td>
-
-      <td className="whitespace-nowrap px-3 py-3 text-right">
-        <a
-          href={amazonUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-slate-900 underline-offset-2 hover:underline"
-        >
-          {fmtEur(p.amazon_price)}
-        </a>
-      </td>
-
-      <td className="whitespace-nowrap px-3 py-3 text-right">
-        <div className="flex items-center justify-end gap-2">
-          {p.ebay_condition && (
-            <span
-              className={
-                p.ebay_condition === "NEW"
-                  ? "rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700"
-                  : "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
-              }
-              title={`eBay-Zustand: ${p.ebay_condition === "NEW" ? "Neu" : "Gebraucht"}`}
-            >
-              {p.ebay_condition === "NEW" ? "Neu" : "Gebr."}
-            </span>
-          )}
-          {p.ebay_url ? (
-            <a
-              href={p.ebay_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-900 underline-offset-2 hover:underline"
-            >
-              {fmtEur((p.ebay_price ?? 0) + (p.ebay_shipping ?? 0))}
-            </a>
-          ) : (
-            fmtEur(p.ebay_price)
-          )}
-        </div>
-        {p.ebay_shipping && p.ebay_shipping > 0 ? (
-          <div className="text-xs text-slate-500">
-            inkl. {fmtEur(p.ebay_shipping)} Versand
+            {p.ebay_url ? (
+              <a
+                href={p.ebay_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                eBay öffnen
+              </a>
+            ) : null}
           </div>
-        ) : null}
-      </td>
+        </td>
 
-      <td className={`whitespace-nowrap px-3 py-3 text-right ${profitClass(p)}`}>
-        {fmtEur(p.profit_euro)}
-      </td>
+        <td className="whitespace-nowrap px-3 py-3 text-right">
+          <a
+            href={amazonUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-900 underline-offset-2 hover:underline"
+          >
+            {fmtEur(p.amazon_price)}
+          </a>
+        </td>
 
-      <td className={`whitespace-nowrap px-3 py-3 text-right ${roiClass(p)}`}>
-        {fmtPct(p.roi_pct)}
-      </td>
+        <td className="whitespace-nowrap px-3 py-3 text-right">
+          <div className="flex items-center justify-end gap-2">
+            {p.ebay_condition && (
+              <span
+                className={
+                  p.ebay_condition === "NEW"
+                    ? "rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700"
+                    : "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                }
+                title={`eBay-Zustand: ${p.ebay_condition === "NEW" ? "Neu" : "Gebraucht"}`}
+              >
+                {p.ebay_condition === "NEW" ? "Neu" : "Gebr."}
+              </span>
+            )}
+            {p.ebay_url ? (
+              <a
+                href={p.ebay_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-900 underline-offset-2 hover:underline"
+              >
+                {fmtEur((p.ebay_price ?? 0) + (p.ebay_shipping ?? 0))}
+              </a>
+            ) : (
+              fmtEur(p.ebay_price)
+            )}
+          </div>
+          {p.ebay_shipping && p.ebay_shipping > 0 ? (
+            <div className="text-xs text-slate-500">
+              inkl. {fmtEur(p.ebay_shipping)} Versand
+            </div>
+          ) : null}
+        </td>
 
-      <td className="whitespace-nowrap px-3 py-3 text-right">{fmtInt(p.bsr)}</td>
+        <td className={`whitespace-nowrap px-3 py-3 text-right ${profitClass(p)}`}>
+          {fmtEur(p.profit_euro)}
+        </td>
 
-      <td
-        className="whitespace-nowrap px-3 py-3 text-right"
-        title={p.monthly_sales ? undefined : "Keine Verkaufsdaten von Keepa verfügbar"}
-      >
-        {fmtInt(p.monthly_sales)}
-      </td>
+        <td className={`whitespace-nowrap px-3 py-3 text-right ${roiClass(p)}`}>
+          {fmtPct(p.roi_pct)}
+        </td>
 
-      <td className="whitespace-nowrap px-3 py-3 text-right text-xs text-slate-500">
-        {relativeTime(p.last_checked)}
-      </td>
-    </tr>
+        <td className="whitespace-nowrap px-3 py-3 text-right">{fmtInt(p.bsr)}</td>
+
+        <td
+          className="whitespace-nowrap px-3 py-3 text-right"
+          title={p.monthly_sales ? undefined : "Keine Verkaufsdaten von Keepa verfügbar"}
+        >
+          {fmtInt(p.monthly_sales)}
+        </td>
+
+        <td className="whitespace-nowrap px-3 py-3 text-right text-xs text-slate-500">
+          {relativeTime(p.last_checked)}
+        </td>
+      </tr>
+
+      {/* Zeile 2: Keepa-Chart über volle Breite */}
+      <tr className={`${bg}`}>
+        <td colSpan={9} className="px-3 pb-4 pt-0">
+          <div className="flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={keepaChart}
+              alt="Keepa Chart"
+              className="h-auto w-full max-w-[500px] rounded border border-slate-200 bg-white"
+              loading="lazy"
+            />
+          </div>
+        </td>
+      </tr>
+    </>
   );
 }
