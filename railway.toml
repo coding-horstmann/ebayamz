@@ -1,5 +1,2 @@
 [build]
 builder = "RAILPACK"
-
-[deploy]
-startCommand = "npm run build && npm start"
