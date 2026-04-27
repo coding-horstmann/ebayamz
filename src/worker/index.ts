@@ -92,6 +92,7 @@ async function runEbayScan(log: LogFn): Promise<EbayScanStats> {
     try {
       const hit = await searchCheapestBook({
         gtin: p.isbn13 ?? undefined,
+        asin: p.asin ?? undefined,
         title: p.title ?? undefined,
       });
 

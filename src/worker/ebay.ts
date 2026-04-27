@@ -173,6 +173,7 @@ export async function applyRateLimitBackoff(consecutiveRateLimits: number): Prom
 
 type SearchOpts = {
   gtin?: string;
+  asin?: string;
   title?: string;
 };
 
@@ -235,61 +236,72 @@ export async function searchCheapestBook(opts: SearchOpts): Promise<EbayHit | nu
   const token = await getEbayAccessToken();
   const marketplace = process.env.EBAY_MARKETPLACE_ID ?? "EBAY_DE";
 
-  const params = new URLSearchParams();
-  if (opts.gtin && /^\d{8,14}$/.test(opts.gtin)) {
-    params.set("gtin", opts.gtin);
-  } else if (opts.title) {
-    params.set("q", opts.title.slice(0, 60));
-  } else {
-    return null;
-  }
-
   const conditionFilter = EBAY_ACCEPTED_CONDITION_IDS.join("|");
-  params.set(
-    "filter",
-    `conditionIds:{${conditionFilter}},buyingOptions:{FIXED_PRICE},deliveryCountry:DE`
-  );
-  params.set("sort", "pricePlusShipping");
-  // Etwas größerer Puffer, falls das absolut günstigste Item direkt ungültig ist
-  // (z.B. conditionId passt doch nicht durch eine eBay-Eigenheit).
-  params.set("limit", "10");
+  const commonParams = {
+    filter: `conditionIds:{${conditionFilter}},buyingOptions:{FIXED_PRICE},deliveryCountry:DE`,
+    sort: "pricePlusShipping",
+    limit: "10",
+  };
 
-  const url = `${SEARCH_URL}?${params.toString()}`;
+  const attempts: Array<{ mode: "gtin" | "q"; value: string }> = [];
+  const seen = new Set<string>();
+  const pushAttempt = (mode: "gtin" | "q", value: string) => {
+    const v = value.trim();
+    if (!v) return;
+    const key = `${mode}:${v}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    attempts.push({ mode, value: v });
+  };
 
-  const res = await fetchWithRetry(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": marketplace,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-  });
+  if (opts.gtin && /^\d{8,14}$/.test(opts.gtin)) pushAttempt("gtin", opts.gtin);
+  // Viele DE-Buchangebote matchen über ISBN-10/ASIN besser als über gtin.
+  if (opts.asin && /^\d{10}$/.test(opts.asin)) pushAttempt("q", opts.asin);
+  if (opts.title) pushAttempt("q", opts.title.slice(0, 60));
+  if (attempts.length === 0) return null;
 
-  if (res.status === 429) {
-    throw new EbayRateLimitError();
-  }
+  for (const attempt of attempts) {
+    const params = new URLSearchParams();
+    params.set(attempt.mode, attempt.value);
+    params.set("filter", commonParams.filter);
+    params.set("sort", commonParams.sort);
+    params.set("limit", commonParams.limit);
 
-  if (res.status === 401) {
-    cachedToken = null;
-    const body = await res.text().catch(() => "");
-    throw new Error(`eBay 401 Unauthorized – Token ungültig. Body: ${body.slice(0, 200)}`);
-  }
+    const url = `${SEARCH_URL}?${params.toString()}`;
+    const res = await fetchWithRetry(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`eBay Browse Fehler ${res.status}: ${body.slice(0, 300)}`);
-  }
+    if (res.status === 429) {
+      throw new EbayRateLimitError();
+    }
 
-  const json = (await res.json()) as EbaySearchResponse;
-  const items = json.itemSummaries ?? [];
-  if (items.length === 0) return null;
+    if (res.status === 401) {
+      cachedToken = null;
+      const body = await res.text().catch(() => "");
+      throw new Error(`eBay 401 Unauthorized – Token ungültig. Body: ${body.slice(0, 200)}`);
+    }
 
-  // Items sind bereits nach Preis+Versand aufsteigend sortiert.
-  // Wir nehmen das erste, das unsere Condition-Policy bestanden hat.
-  for (const item of items) {
-    const hit = itemToHit(item);
-    if (hit) return hit;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`eBay Browse Fehler ${res.status}: ${body.slice(0, 300)}`);
+    }
+
+    const json = (await res.json()) as EbaySearchResponse;
+    const items = json.itemSummaries ?? [];
+    if (items.length === 0) continue;
+
+    // Items sind bereits nach Preis+Versand aufsteigend sortiert.
+    for (const item of items) {
+      const hit = itemToHit(item);
+      if (hit) return hit;
+    }
   }
   return null;
 }
