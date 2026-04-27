@@ -64,30 +64,17 @@ export default function ProductRow({ product: p }: { product: ProductRowType }) 
 
   return (
     <tr className={`${rowBg(p)} align-top`}>
-      {/* Bilder – nur vorhandene anzeigen, keine leeren Platzhalter */}
+      {/* Bilder – nur eBay anzeigen wenn vorhanden, Amazon-Bild entfernt */}
       <td className="whitespace-nowrap px-3 py-3">
-        <div className="flex flex-col gap-2">
-          {p.image_amazon ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={p.image_amazon}
-              alt="Amazon"
-              className="h-36 w-24 rounded border border-slate-200 bg-white object-contain"
-              loading="lazy"
-            />
-          ) : (
-            <div className="h-36 w-24 rounded border border-dashed border-slate-300 bg-slate-50" />
-          )}
-          {p.image_ebay ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={p.image_ebay}
-              alt="eBay"
-              className="h-24 w-16 rounded border border-slate-200 bg-white object-contain"
-              loading="lazy"
-            />
-          ) : null}
-        </div>
+        {p.image_ebay ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={p.image_ebay}
+            alt="eBay"
+            className="h-36 w-24 rounded border border-slate-200 bg-white object-contain"
+            loading="lazy"
+          />
+        ) : null}
       </td>
 
       {/* Titel + Meta + Links + Keepa-Chart */}
