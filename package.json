@@ -10,7 +10,7 @@
     "lint": "next lint",
     "worker": "ts-node --transpile-only src/worker/index.ts",
     "worker:build": "tsc -p tsconfig.worker.json",
-    "worker:start": "node dist/worker/index.js",
+    "worker:start": "node dist/src/worker/index.js",
     "railway:worker": "npm run worker:build && npm run worker:start"
   },
   "dependencies": {
