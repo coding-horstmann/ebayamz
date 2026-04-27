@@ -137,7 +137,11 @@ export async function keepaFindAsins(opts: {
   const perPage = Math.min(Math.max(opts.limit, 50), 10000);
 
   const selection = {
-    category: CATEGORY_BOOKS_DE,
+    // Product-Finder-Filter gemäß Keepa-API:
+    // - categories_include statt `category`
+    // - productGroup "Book" als zusätzliche Absicherung
+    categories_include: [CATEGORY_BOOKS_DE],
+    productGroup: ["Book"],
     current_USED_gte: minCents,
     sort: ["current_SALES", "asc"],
     // Nur Produkte mit einer Amazon-Verkaufsrangliste (liefert BSR-Kandidaten):
@@ -202,9 +206,6 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
       if (!isLikelyBookProduct(p)) continue;
 
       const isbn13 = pickIsbn13(p);
-      // Für BookScout verarbeiten wir bewusst nur Produkte mit ISBN-13,
-      // damit Elektronik/sonstige Kategorien sicher ausgeschlossen bleiben.
-      if (!isbn13) continue;
 
       const usedCents = p.stats?.current?.[USED_INDEX];
       const amazon_price = centsToEuro(usedCents);
