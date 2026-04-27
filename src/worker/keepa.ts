@@ -91,6 +91,11 @@ function pickIsbn13(p: KeepaRawProduct): string | null {
   return null;
 }
 
+function isLikelyBookProduct(p: KeepaRawProduct): boolean {
+  const group = (p.productGroup ?? "").toLowerCase();
+  return group.includes("book") || group.includes("buch");
+}
+
 function pickLowestBsr(p: KeepaRawProduct): number | null {
   // Bevorzuge salesRanks (alle Kategorien, niedrigsten Wert nehmen).
   if (p.salesRanks && typeof p.salesRanks === "object") {
@@ -190,6 +195,13 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
     }
 
     for (const p of json.products ?? []) {
+      if (!isLikelyBookProduct(p)) continue;
+
+      const isbn13 = pickIsbn13(p);
+      // Für BookScout verarbeiten wir bewusst nur Produkte mit ISBN-13,
+      // damit Elektronik/sonstige Kategorien sicher ausgeschlossen bleiben.
+      if (!isbn13) continue;
+
       const usedCents = p.stats?.current?.[USED_INDEX];
       const amazon_price = centsToEuro(usedCents);
       if (amazon_price === null) continue; // ohne gültigen USED-Preis überspringen
@@ -197,7 +209,7 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
       out.push({
         asin: p.asin,
         title: p.title ?? null,
-        isbn13: pickIsbn13(p),
+        isbn13,
         amazon_price,
         bsr: pickLowestBsr(p),
         monthly_sales:

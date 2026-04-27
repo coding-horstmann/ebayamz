@@ -123,8 +123,35 @@ export async function getEbayAccessToken(): Promise<string> {
 /* ---------------------------- Search ----------------------------- */
 
 const BASE_DELAY_MS = Number(process.env.EBAY_API_DELAY_MS ?? "1100");
+const EBAY_FETCH_RETRIES = 3;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retries = EBAY_FETCH_RETRIES
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      // 5xx sind oft transient - kurz warten und nochmal probieren.
+      if (res.status >= 500 && res.status <= 599 && attempt < retries) {
+        await sleep(300 * (attempt + 1));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        await sleep(300 * (attempt + 1));
+        continue;
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
 
 /**
  * Wartet die Basis-Delay zwischen zwei Requests ab.
@@ -229,7 +256,7 @@ export async function searchCheapestBook(opts: SearchOpts): Promise<EbayHit | nu
 
   const url = `${SEARCH_URL}?${params.toString()}`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
