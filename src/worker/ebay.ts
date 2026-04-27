@@ -103,8 +103,8 @@ export async function getEbayAccessToken(): Promise<string> {
     return cachedToken.value;
   }
 
-  const clientId = requireEnv("EBAY_CLIENT_ID");
-  const clientSecret = requireEnv("EBAY_CLIENT_SECRET");
+  const clientId = requireEnv("EBAY_CLIENT_ID").trim();
+  const clientSecret = requireEnv("EBAY_CLIENT_SECRET").trim();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const body = new URLSearchParams({
