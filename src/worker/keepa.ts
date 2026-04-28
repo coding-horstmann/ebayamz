@@ -1,10 +1,12 @@
 /**
  * Keepa API Client
  * --------------------------------------------------------------------
- * Nutzt den Product Finder (selection-basiert) um gebrauchte Bücher
+ * Nutzt den Product Finder (selection-basiert) um Bücher
  * auf Amazon.de (domain=3) zu finden, deren USED-Preis über einem
  * Minimum liegt. Anschließend werden für die gefundenen ASINs über
  * /product die Detaildaten (inkl. Bilder, ISBN, BSR, Sales) geladen.
+ * Als Amazon-Preis wird der niedrigste gültige Preis zwischen USED und
+ * NEW verwendet.
  *
  * Docs: https://keepa.com/#!discuss/t/product-finder/1332
  *       https://keepa.com/#!discuss/t/product-object/116
@@ -22,6 +24,7 @@
 const KEEPA_BASE = "https://api.keepa.com";
 const DOMAIN_DE = 3;
 const CATEGORY_BOOKS_DE = 186606;
+const NEW_INDEX = 1;
 const USED_INDEX = 2;
 const SALES_INDEX = 3;
 
@@ -148,7 +151,7 @@ function pickLowestBsr(p: KeepaRawProduct): number | null {
 
 /**
  * Schritt 1a – Product Finder:
- * Liefert ASINs gebrauchter Bücher mit current_USED_gte >= MIN_AMZ_USED_PRICE * 100.
+ * Liefert ASINs von Büchern mit current_USED_gte >= MIN_AMZ_USED_PRICE * 100.
  * Sortiert nach BSR aufsteigend.
  */
 export async function keepaFindAsins(opts: {
@@ -256,8 +259,21 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
       }
 
       const usedCents = p.stats?.current?.[USED_INDEX];
-      const amazon_price = centsToEuro(usedCents);
-      if (amazon_price === null) continue; // ohne gültigen USED-Preis überspringen
+      const newCents = p.stats?.current?.[NEW_INDEX];
+      const usedPrice = centsToEuro(usedCents);
+      const newPrice = centsToEuro(newCents);
+
+      // Niedrigsten gültigen Preis nehmen (USED oder NEW).
+      let amazon_price: number | null = null;
+      if (usedPrice !== null && newPrice !== null) {
+        amazon_price = Math.min(usedPrice, newPrice);
+      } else if (usedPrice !== null) {
+        amazon_price = usedPrice;
+      } else if (newPrice !== null) {
+        amazon_price = newPrice;
+      }
+
+      if (amazon_price === null) continue; // ohne gültigen Preis überspringen
 
       out.push({
         asin: p.asin,

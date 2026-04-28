@@ -62,7 +62,7 @@ async function runKeepaSync(log: LogFn): Promise<number> {
   if (asins.length === 0) return 0;
 
   const products = await keepaFetchProducts(asins);
-  log(`[Keepa] Produkte mit gültigem USED-Preis: ${products.length}`);
+  log(`[Keepa] Produkte mit gültigem Preis: ${products.length}`);
 
   const upserted = await upsertProductsFromKeepa(products);
   log(`[Keepa] Upserts in Supabase: ${upserted}`);
