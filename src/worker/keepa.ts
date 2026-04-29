@@ -47,7 +47,15 @@ type KeepaFinderResponse = {
 type KeepaProductResponse = {
   products?: KeepaRawProduct[];
   tokensLeft?: number;
+  refillIn?: number;
+  refillRate?: number;
   error?: { type?: string; message?: string };
+};
+
+type KeepaRateLimitResponse = {
+  refillIn?: number;
+  refillRate?: number;
+  tokensLeft?: number;
 };
 
 type KeepaRawProduct = {
@@ -70,6 +78,42 @@ function requireKey(): string {
   const k = process.env.KEEPA_API_KEY;
   if (!k) throw new Error("KEEPA_API_KEY fehlt.");
   return k;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseKeepaRateLimit(body: string): KeepaRateLimitResponse | null {
+  try {
+    const parsed = JSON.parse(body) as KeepaRateLimitResponse;
+    if (
+      typeof parsed.refillIn === "number" ||
+      typeof parsed.refillRate === "number" ||
+      typeof parsed.tokensLeft === "number"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Body was not Keepa's JSON token status payload.
+  }
+  return null;
+}
+
+function keepaRateLimitDelayMs(status: KeepaRateLimitResponse | null, attempt: number): number {
+  const refillDelay =
+    typeof status?.refillIn === "number" && status.refillIn > 0 ? status.refillIn : 0;
+  const tokenDebt =
+    typeof status?.tokensLeft === "number" && status.tokensLeft < 0
+      ? Math.abs(status.tokensLeft)
+      : 0;
+  const refillRate =
+    typeof status?.refillRate === "number" && status.refillRate > 0 ? status.refillRate : 0;
+  const debtDelay =
+    tokenDebt > 0 && refillRate > 0 ? Math.ceil((tokenDebt / refillRate) * 60_000) : 0;
+  const fallbackDelay = Math.min(5_000 * attempt, 60_000);
+
+  return Math.max(refillDelay, debtDelay, fallbackDelay) + 1_000;
 }
 
 function centsToEuro(cents: number | undefined | null): number | null {
@@ -223,6 +267,7 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
   const out: KeepaProduct[] = [];
 
   const BATCH = 100;
+  const MAX_PRODUCT_ATTEMPTS = 6;
   for (let i = 0; i < asins.length; i += BATCH) {
     const chunk = asins.slice(i, i + BATCH);
     const url =
@@ -232,16 +277,42 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
       `&asin=${encodeURIComponent(chunk.join(","))}` +
       `&stats=1&buybox=0&history=0`;
 
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(
-        `[Keepa] /product Fehler ${res.status} für Chunk ${i}-${i + chunk.length}: ${body.slice(0, 200)}`
-      );
-      continue;
+    let json: KeepaProductResponse | null = null;
+    for (let attempt = 1; attempt <= MAX_PRODUCT_ATTEMPTS; attempt++) {
+      const res = await fetch(url, { method: "GET" });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+
+        if (res.status === 429) {
+          if (attempt === MAX_PRODUCT_ATTEMPTS) {
+            console.error(
+              `[Keepa] /product Fehler 429 für Chunk ${i}-${i + chunk.length} nach ${attempt} Versuchen: ${body.slice(0, 200)}`
+            );
+            break;
+          }
+
+          const status = parseKeepaRateLimit(body);
+          const delayMs = keepaRateLimitDelayMs(status, attempt);
+          console.warn(
+            `[Keepa] /product 429 für Chunk ${i}-${i + chunk.length}; warte ${Math.ceil(
+              delayMs / 1000
+            )}s vor Retry ${attempt + 1}/${MAX_PRODUCT_ATTEMPTS}: ${body.slice(0, 200)}`
+          );
+          await sleep(delayMs);
+          continue;
+        }
+
+        console.error(
+          `[Keepa] /product Fehler ${res.status} für Chunk ${i}-${i + chunk.length}: ${body.slice(0, 200)}`
+        );
+        break;
+      }
+
+      json = (await res.json()) as KeepaProductResponse;
+      break;
     }
 
-    const json = (await res.json()) as KeepaProductResponse;
+    if (!json) continue;
     if (json.error) {
       console.error(`[Keepa] /product Fehler: ${json.error.type} ${json.error.message}`);
       continue;
