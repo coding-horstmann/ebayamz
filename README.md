@@ -31,7 +31,7 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 | `KEEPA_API_KEY`             | Keepa API-Key                                                        |
 | `SUPABASE_URL`              | Supabase Projekt-URL                                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-Role-Key (Server-only!)                                      |
-| `MIN_AMZ_USED_PRICE`        | Mindest-USED-Preis EUR für neue ASINs, Default `25`                  |
+| `MIN_AMZ_USED_PRICE`        | Mindest-Amazonpreis EUR fuer gespeicherte/scannbare Produkte, Default `25` |
 | `MAX_SYNC_LIMIT`            | BSR-Fenstergroesse und eBay-Abgleiche pro Lauf, Default `4000`       |
 | `BOOKSCOUT_USER`            | Basic-Auth-Username fürs Frontend, Default `admin`                   |
 | `BOOKSCOUT_PASSWORD`        | Basic-Auth-Passwort. **Leer = keine Auth** (Seite öffentlich)        |
@@ -157,6 +157,9 @@ supabase/
 
 - Keepa-Preise sind in Cent – Worker rechnet sie korrekt um. `-1` bedeutet
   „nicht verfügbar" und wird übersprungen.
+- `MIN_AMZ_USED_PRICE` wird auf den finalen Amazonpreis angewendet: Der Worker
+  nimmt den niedrigeren gueltigen Preis aus USED und NEW und speichert/scannt
+  das Produkt nur, wenn dieser Preis den Mindestwert erreicht.
 - Fuer das Ziel "50.000 ASINs in 14 Tagen" bei taeglichem Railway-Cron:
   `MAX_SYNC_LIMIT=4000`. Der Worker macht dann pro Lauf den naechsten
   BSR-Block, gleicht diesen Block direkt mit eBay ab und faengt nach BSR

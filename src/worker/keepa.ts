@@ -315,9 +315,16 @@ export async function keepaFindAsins(opts: {
 /**
  * Schritt 1b – Produktdetails in Batches (max. 100 ASINs pro Call).
  */
-export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[]> {
+export async function keepaFetchProducts(
+  asins: string[],
+  opts: { minAmazonPriceEur?: number } = {}
+): Promise<KeepaProduct[]> {
   const key = requireKey();
   const out: KeepaProduct[] = [];
+  const minAmazonPriceEur =
+    typeof opts.minAmazonPriceEur === "number" && Number.isFinite(opts.minAmazonPriceEur)
+      ? opts.minAmazonPriceEur
+      : null;
 
   const BATCH = productBatchSize();
   const MAX_PRODUCT_ATTEMPTS = 6;
@@ -402,6 +409,7 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
       }
 
       if (amazon_price === null) continue; // ohne gültigen Preis überspringen
+      if (minAmazonPriceEur !== null && amazon_price < minAmazonPriceEur) continue;
 
       out.push({
         asin: p.asin,

@@ -85,7 +85,7 @@ async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> 
     return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
   }
 
-  const products = await keepaFetchProducts(asins);
+  const products = await keepaFetchProducts(asins, { minAmazonPriceEur: minUsedPriceEur });
   const productAsins = products.map((p) => p.asin);
   const maxFetchedBsr = products.reduce(
     (max, product) => (product.bsr !== null && product.bsr > max ? product.bsr : max),
@@ -94,7 +94,7 @@ async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> 
   if (maxFetchedBsr > 0) {
     log(`[Keepa] Hoechster BSR in diesem Block: ${maxFetchedBsr}`);
   }
-  log(`[Keepa] Produkte mit gültigem Preis: ${products.length}`);
+  log(`[Keepa] Produkte mit gueltigem Preis >= ${minUsedPriceEur} EUR: ${products.length}`);
 
   const upserted = await upsertProductsFromKeepa(products);
   log(`[Keepa] Upserts in Supabase: ${upserted}`);
