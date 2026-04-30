@@ -21,14 +21,18 @@ import {
   searchCheapestBook,
 } from "./ebay";
 import {
+  countProductsUpToBsr,
   garbageCollect,
-  selectOldestQuartile,
+  getNextKeepaBsr,
+  selectEbayBacklog,
+  selectProductsByAsins,
   updateEbayForProduct,
   upsertProductsFromKeepa,
 } from "./sync";
 
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
-const DEFAULT_KEEPA_MAX_ASINS_PER_RUN = 1000;
+const BSR_TARGET = 50000;
+const MAX_KEEPA_FINDER_LIMIT = 10000;
 
 function parseEnvNumber(name: string, fallback: number): number {
   const v = process.env[name];
@@ -38,6 +42,14 @@ function parseEnvNumber(name: string, fallback: number): number {
 }
 
 type LogFn = (line: string) => void;
+
+type KeepaSyncStats = {
+  upserted: number;
+  productAsins: string[];
+  bsrFrom: number;
+  bsrTo: number;
+  knownProductsUpToTarget: number;
+};
 
 export type WorkerResult = {
   startedAt: string;
@@ -52,34 +64,45 @@ export type WorkerResult = {
   errors: string[];
 };
 
-async function runKeepaSync(log: LogFn): Promise<number> {
+async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> {
   const minUsedPriceEur = parseEnvNumber("MIN_AMZ_USED_PRICE", 25);
-  const requestedLimit = Math.max(0, Math.floor(parseEnvNumber("MAX_SYNC_LIMIT", 500)));
-  const keepaMaxAsinsPerRun = Math.max(
-    1,
-    Math.floor(parseEnvNumber("KEEPA_MAX_ASINS_PER_RUN", DEFAULT_KEEPA_MAX_ASINS_PER_RUN))
-  );
-  const limit = Math.min(requestedLimit, keepaMaxAsinsPerRun);
+  const bsrFrom = await getNextKeepaBsr(BSR_TARGET);
+  const bsrTo = BSR_TARGET;
+  const knownProductsUpToTarget = await countProductsUpToBsr(BSR_TARGET);
 
-  if (limit < requestedLimit) {
+  if (bsrFrom > BSR_TARGET) {
     log(
-      `[Keepa] MAX_SYNC_LIMIT ${requestedLimit} wird auf ${limit} begrenzt ` +
-        `(KEEPA_MAX_ASINS_PER_RUN), damit der Cron nicht stundenlang in Keepa-429s laeuft.`
+      `[Keepa] BSR-Ziel ${BSR_TARGET} ist erreicht ` +
+        `(${knownProductsUpToTarget} Produkte gespeichert). Kein neuer Finder-Block.`
     );
+    return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
   }
 
-  log(`[Keepa] Finder: min USED ${minUsedPriceEur} EUR, Limit ${limit}, sort BSR asc`);
+  log(
+    `[Keepa] Finder: min USED ${minUsedPriceEur} EUR, BSR ${bsrFrom}-${bsrTo}, ` +
+      `Limit ${limit}, sort BSR asc`
+  );
 
-  const asins = await keepaFindAsins({ minUsedPriceEur, limit });
+  const asins = await keepaFindAsins({ minUsedPriceEur, limit, bsrFrom, bsrTo });
   log(`[Keepa] Gefundene ASINs: ${asins.length}`);
-  if (asins.length === 0) return 0;
+  if (asins.length === 0) {
+    return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
+  }
 
   const products = await keepaFetchProducts(asins);
+  const productAsins = products.map((p) => p.asin);
+  const maxFetchedBsr = products.reduce(
+    (max, product) => (product.bsr !== null && product.bsr > max ? product.bsr : max),
+    0
+  );
+  if (maxFetchedBsr > 0) {
+    log(`[Keepa] Hoechster BSR in diesem Block: ${maxFetchedBsr}`);
+  }
   log(`[Keepa] Produkte mit gültigem Preis: ${products.length}`);
 
   const upserted = await upsertProductsFromKeepa(products);
   log(`[Keepa] Upserts in Supabase: ${upserted}`);
-  return upserted;
+  return { upserted, productAsins, bsrFrom, bsrTo, knownProductsUpToTarget };
 }
 
 type EbayScanStats = {
@@ -89,9 +112,22 @@ type EbayScanStats = {
   aborted: boolean;
 };
 
-async function runEbayScan(log: LogFn): Promise<EbayScanStats> {
-  const candidates = await selectOldestQuartile();
-  log(`[eBay] Scan-Kandidaten (25% älteste): ${candidates.length}`);
+async function runEbayScan(
+  log: LogFn,
+  preferredAsins: string[],
+  limit: number
+): Promise<EbayScanStats> {
+  const currentBatch = await selectProductsByAsins(preferredAsins, limit);
+  const remaining = Math.max(0, limit - currentBatch.length);
+  const backlog = await selectEbayBacklog(
+    remaining,
+    currentBatch.map((p) => p.asin)
+  );
+  const candidates = [...currentBatch, ...backlog].slice(0, limit);
+  log(
+    `[eBay] Scan-Kandidaten: ${candidates.length} ` +
+      `(aktueller Keepa-Block ${currentBatch.length}, Backlog ${backlog.length})`
+  );
 
   let scanned = 0;
   let hits = 0;
@@ -172,10 +208,21 @@ export async function runWorker(logger?: LogFn): Promise<WorkerResult> {
   };
 
   log(`[Worker] Start ${new Date(startedAt).toISOString()}`);
+  const requestedLimit = Math.max(1, Math.floor(parseEnvNumber("MAX_SYNC_LIMIT", 4000)));
+  const runLimit = Math.min(requestedLimit, MAX_KEEPA_FINDER_LIMIT);
+  if (runLimit < requestedLimit) {
+    log(
+      `[Worker] MAX_SYNC_LIMIT ${requestedLimit} wird auf ${runLimit} begrenzt ` +
+        `(Keepa Finder Maximum pro Lauf).`
+    );
+  }
 
   let keepaUpserts = 0;
+  let keepaProductAsins: string[] = [];
   try {
-    keepaUpserts = await runKeepaSync(log);
+    const keepa = await runKeepaSync(log, runLimit);
+    keepaUpserts = keepa.upserted;
+    keepaProductAsins = keepa.productAsins;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Keepa-Sync: ${msg}`);
@@ -184,7 +231,7 @@ export async function runWorker(logger?: LogFn): Promise<WorkerResult> {
 
   let stats: EbayScanStats = { scanned: 0, hits: 0, deals: 0, aborted: false };
   try {
-    stats = await runEbayScan(log);
+    stats = await runEbayScan(log, keepaProductAsins, runLimit);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`eBay-Scan: ${msg}`);
@@ -195,7 +242,7 @@ export async function runWorker(logger?: LogFn): Promise<WorkerResult> {
   try {
     gc = await garbageCollect();
     log(
-      `[GC] gelöscht: ${gc.stale} stale (>10 Tage), ${gc.missingPrice} ohne amazon_price`
+      `[GC] geloescht: ${gc.stale} stale (>30 Tage), ${gc.missingPrice} ohne amazon_price`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

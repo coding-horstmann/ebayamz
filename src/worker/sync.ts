@@ -14,6 +14,9 @@ import {
 } from "../../lib/supabase";
 import type { KeepaProduct } from "./keepa";
 
+const BSR_TARGET = 50000;
+const PRODUCT_RETENTION_DAYS = 30;
+
 /**
  * Speichert (Upsert) die von Keepa gelieferten Produkte anhand der ASIN.
  * Aktualisiert Stammdaten (title, Bilder, ISBN, BSR, Sales) und den Amazon-Preis.
@@ -54,34 +57,100 @@ export async function upsertProductsFromKeepa(products: KeepaProduct[]): Promise
 }
 
 /**
- * Gibt die 25% der Produkte zurück, deren `last_checked` am längsten her ist.
- * Mindestens 1 Produkt wenn die Tabelle nicht leer ist.
+ * Fortschritt fuer den Keepa-Aufbau: hoechster gespeicherter BSR + 1.
+ * Dadurch laeuft der naechste Finder-Lauf nicht wieder bei BSR 1 los.
  */
-export async function selectOldestQuartile(): Promise<ProductRow[]> {
+export async function getNextKeepaBsr(maxBsr = BSR_TARGET): Promise<number> {
   const sb = getSupabase();
-
-  const { count, error: countErr } = await sb
+  const { data, error } = await sb
     .from("products")
-    .select("*", { count: "exact", head: true });
-  if (countErr) {
-    console.error("[Sync] Count-Fehler:", countErr.message);
-    return [];
-  }
-  if (!count || count === 0) return [];
+    .select("bsr")
+    .not("bsr", "is", null)
+    .lte("bsr", maxBsr)
+    .order("bsr", { ascending: false })
+    .limit(1);
 
-  const limit = Math.max(1, Math.floor(count * 0.25));
+  if (error) {
+    console.error("[Sync] BSR-Fortschritt konnte nicht gelesen werden:", error.message);
+    return 1;
+  }
+
+  const maxKnownBsr = (data?.[0] as { bsr?: number } | undefined)?.bsr;
+  if (typeof maxKnownBsr !== "number" || maxKnownBsr < 1) return 1;
+  return Math.min(maxKnownBsr + 1, maxBsr + 1);
+}
+
+export async function countProductsUpToBsr(maxBsr = BSR_TARGET): Promise<number> {
+  const sb = getSupabase();
+  const { count, error } = await sb
+    .from("products")
+    .select("*", { count: "exact", head: true })
+    .not("bsr", "is", null)
+    .lte("bsr", maxBsr);
+
+  if (error) {
+    console.error("[Sync] BSR-Count konnte nicht gelesen werden:", error.message);
+    return 0;
+  }
+
+  return count ?? 0;
+}
+
+export async function selectProductsByAsins(
+  asins: string[],
+  limit: number
+): Promise<ProductRow[]> {
+  const sb = getSupabase();
+  const uniqueAsins = Array.from(new Set(asins.filter(Boolean)));
+  if (uniqueAsins.length === 0 || limit <= 0) return [];
+
+  const rows: ProductRow[] = [];
+  const CHUNK = 200;
+  for (let i = 0; i < uniqueAsins.length && rows.length < limit; i += CHUNK) {
+    const chunk = uniqueAsins.slice(i, i + CHUNK);
+    const { data, error } = await sb
+      .from("products")
+      .select("*")
+      .in("asin", chunk)
+      .order("bsr", { ascending: true, nullsFirst: false })
+      .limit(limit - rows.length);
+
+    if (error) {
+      console.error("[Sync] Batch-Auswahl fuer eBay fehlgeschlagen:", error.message);
+      continue;
+    }
+
+    rows.push(...(((data ?? []) as unknown as ProductRow[])));
+  }
+
+  return rows.slice(0, limit);
+}
+
+export async function selectEbayBacklog(
+  limit: number,
+  excludeAsins: string[] = []
+): Promise<ProductRow[]> {
+  if (limit <= 0) return [];
+  const sb = getSupabase();
+  const excluded = Array.from(new Set(excludeAsins.filter(Boolean)));
 
   const { data, error } = await sb
     .from("products")
     .select("*")
+    .not("bsr", "is", null)
+    .lte("bsr", BSR_TARGET)
     .order("last_checked", { ascending: true, nullsFirst: true })
-    .limit(limit);
-
+    .order("bsr", { ascending: true, nullsFirst: false })
+    .limit(limit + excluded.length);
   if (error) {
-    console.error("[Sync] Select-Fehler:", error.message);
+    console.error("[Sync] Backlog-Auswahl fuer eBay fehlgeschlagen:", error.message);
     return [];
   }
-  return (data ?? []) as unknown as ProductRow[];
+
+  const rows = (data ?? []) as unknown as ProductRow[];
+  if (excluded.length === 0) return rows.slice(0, limit);
+  const excludedSet = new Set(excluded);
+  return rows.filter((row) => !excludedSet.has(row.asin)).slice(0, limit);
 }
 
 /**
@@ -128,14 +197,16 @@ export async function updateEbayForProduct(
 
 /**
  * Garbage Collection:
- * - Produkte mit last_checked älter als 10 Tage -> löschen.
+ * - Produkte mit last_checked älter als 30 Tage -> löschen.
  * - Produkte mit amazon_price IS NULL -> löschen.
  *
  * Gibt die Anzahl gelöschter Zeilen zurück (approximativ).
  */
 export async function garbageCollect(): Promise<{ stale: number; missingPrice: number }> {
   const sb = getSupabase();
-  const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+  const staleBefore = new Date(
+    Date.now() - PRODUCT_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
 
   let stale = 0;
   let missingPrice = 0;
@@ -144,7 +215,7 @@ export async function garbageCollect(): Promise<{ stale: number; missingPrice: n
     const { error, count } = await sb
       .from("products")
       .delete({ count: "exact" })
-      .lt("last_checked", tenDaysAgo);
+      .lt("last_checked", staleBefore);
     if (error) {
       console.error("[GC] Stale-Delete-Fehler:", error.message);
     } else {

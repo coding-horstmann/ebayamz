@@ -24,6 +24,7 @@
 const KEEPA_BASE = "https://api.keepa.com";
 const DOMAIN_DE = 3;
 const CATEGORY_BOOKS_DE = 186606;
+const MAX_BSR_TARGET = 50000;
 const NEW_INDEX = 1;
 const USED_INDEX = 2;
 const SALES_INDEX = 3;
@@ -88,23 +89,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parsePositiveIntegerEnv(name: string, fallback: number, max?: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-
-  const value = Math.floor(parsed);
-  return typeof max === "number" ? Math.min(value, max) : value;
-}
-
 function productBatchSize(): number {
-  return parsePositiveIntegerEnv(
-    "KEEPA_PRODUCT_BATCH_SIZE",
-    DEFAULT_PRODUCT_BATCH_SIZE,
-    MAX_PRODUCT_BATCH_SIZE
-  );
+  return Math.min(DEFAULT_PRODUCT_BATCH_SIZE, MAX_PRODUCT_BATCH_SIZE);
 }
 
 function parseKeepaRateLimit(body: string): KeepaRateLimitResponse | null {
@@ -256,9 +242,13 @@ function pickLowestBsr(p: KeepaRawProduct): number | null {
 export async function keepaFindAsins(opts: {
   minUsedPriceEur: number;
   limit: number;
+  bsrFrom: number;
+  bsrTo?: number;
 }): Promise<string[]> {
   const key = requireKey();
   const minCents = Math.round(opts.minUsedPriceEur * 100);
+  const bsrFrom = Math.max(1, Math.floor(opts.bsrFrom));
+  const bsrTo = Math.max(bsrFrom, Math.floor(opts.bsrTo ?? MAX_BSR_TARGET));
   // Product Finder verlangt perPage >= 50.
   // Für Testläufe mit kleinem `limit` fragen wir deshalb eine sinnvolle
   // Mindestmenge an und schneiden das Ergebnis danach auf `limit` zurück.
@@ -267,8 +257,9 @@ export async function keepaFindAsins(opts: {
   const baseSelection = {
     current_USED_gte: minCents,
     sort: ["current_SALES", "asc"],
-    // Nur Produkte mit einer Amazon-Verkaufsrangliste (liefert BSR-Kandidaten):
-    current_SALES_gte: 1,
+    // Nur Produkte im noch offenen BSR-Fenster laden.
+    current_SALES_gte: bsrFrom,
+    current_SALES_lte: bsrTo,
     perPage,
     page: 0,
   };

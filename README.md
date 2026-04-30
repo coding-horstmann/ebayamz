@@ -32,9 +32,7 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 | `SUPABASE_URL`              | Supabase Projekt-URL                                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-Role-Key (Server-only!)                                      |
 | `MIN_AMZ_USED_PRICE`        | Mindest-USED-Preis EUR für neue ASINs, Default `25`                  |
-| `MAX_SYNC_LIMIT`            | Max. **neue** ASINs pro Worker-Lauf (Keepa-Finder), Default `500`    |
-| `KEEPA_MAX_ASINS_PER_RUN`   | Sicherheitslimit fuer Keepa-Details pro Lauf, Default `1000`         |
-| `KEEPA_PRODUCT_BATCH_SIZE`  | ASINs pro Keepa `/product` Call, Default `20`, Maximum `100`          |
+| `MAX_SYNC_LIMIT`            | Neue Keepa-ASINs und eBay-Abgleiche pro Lauf, Default `4000`         |
 | `BOOKSCOUT_USER`            | Basic-Auth-Username fürs Frontend, Default `admin`                   |
 | `BOOKSCOUT_PASSWORD`        | Basic-Auth-Passwort. **Leer = keine Auth** (Seite öffentlich)        |
 
@@ -43,18 +41,18 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 ## 3. Worker-Ablauf
 
 1. **Keepa Sync:** Product Finder (`domain=3`, Kategorie `186606 – Bücher DE`,
-   `current_USED_gte`, sortiert nach BSR aufsteigend) holt bis zu
-   `MAX_SYNC_LIMIT` ASINs, begrenzt den Detailabruf zusätzlich über
-   `KEEPA_MAX_ASINS_PER_RUN`, lädt Details in tokenbewussten Batches und
-   upsertet in Supabase.
-2. **Rolling Sync:** Aus der Gesamttabelle die 25 % Produkte mit dem
-   ältesten `last_checked` auswählen.
-3. **eBay Scan:** Für jedes dieser Produkte das günstigste `FIXED_PRICE` +
-   `conditionIds:{3000}` Angebot (Versand DE) suchen. Rate-Limit:
+   `current_USED_gte`, sortiert nach BSR aufsteigend) startet beim höchsten
+   gespeicherten BSR + 1 und holt bis zu `MAX_SYNC_LIMIT` neue ASINs bis
+   maximal BSR `50000`.
+2. **eBay Scan:** Der gerade geladene Keepa-Block wird direkt mit eBay
+   abgeglichen. Freie Slots bis `MAX_SYNC_LIMIT` werden mit altem Backlog
+   aufgefüllt.
+3. **eBay Suche:** Für jedes Produkt das günstigste passende `FIXED_PRICE`
+   Angebot (Versand DE) suchen. Rate-Limit:
    `EBAY_API_DELAY_MS` zwischen Calls, exponentieller Backoff bei 429. Nach
    5× 429 hintereinander bricht der Worker ab.
 4. **Abschluss-Log:** Scan-Anzahl, Treffer, Deals mit Profit > 3 €, Laufzeit.
-5. **Garbage Collection:** Löscht Produkte mit `last_checked > 10 Tage`
+5. **Garbage Collection:** Löscht Produkte mit `last_checked > 30 Tage`
    oder `amazon_price IS NULL`.
 
 Suchstrategie pro Produkt: ISBN-13 via `gtin=`, sonst `q=` mit den ersten
@@ -108,8 +106,7 @@ Start-Command setzen, damit nicht versehentlich nur Next.js gestartet wird.
    - Beide Services brauchen:
      `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_MARKETPLACE_ID`,
      `EBAY_API_DELAY_MS`, `KEEPA_API_KEY`, `SUPABASE_URL`,
-     `SUPABASE_SERVICE_ROLE_KEY`, `MIN_AMZ_USED_PRICE`, `MAX_SYNC_LIMIT`,
-     `KEEPA_MAX_ASINS_PER_RUN`, `KEEPA_PRODUCT_BATCH_SIZE`.
+     `SUPABASE_SERVICE_ROLE_KEY`, `MIN_AMZ_USED_PRICE`, `MAX_SYNC_LIMIT`.
    - Nur Web zusätzlich:
      `BOOKSCOUT_USER`, `BOOKSCOUT_PASSWORD` (optional).
 
@@ -154,9 +151,9 @@ supabase/
 
 - Keepa-Preise sind in Cent – Worker rechnet sie korrekt um. `-1` bedeutet
   „nicht verfügbar" und wird übersprungen.
-- Ein `MAX_SYNC_LIMIT` von `10000` ist fuer kleine Keepa-Konten zu hoch:
-  Bei `20` Tokens/min dauert allein der Detailabruf mehrere Stunden. Fuer den
-  Railway-Cron sind `500` bis `1000` deutlich stabiler.
+- Fuer das Ziel "50.000 ASINs in 14 Tagen" bei taeglichem Railway-Cron:
+  `MAX_SYNC_LIMIT=4000`. Der Worker macht dann pro Lauf den naechsten
+  BSR-Block und gleicht diesen Block direkt mit eBay ab.
 - Farblogik in der Tabelle:
   - Profit > 10 € **und** ROI > 100 % → grüner Hintergrund.
   - Profit 5–10 € → gelber Hintergrund.
