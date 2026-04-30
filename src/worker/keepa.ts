@@ -210,27 +210,34 @@ function isLikelyBookProduct(p: KeepaRawProduct): boolean {
   return group.includes("book") || group.includes("buch");
 }
 
-function pickLowestBsr(p: KeepaRawProduct): number | null {
-  // Bevorzuge salesRanks (alle Kategorien, niedrigsten Wert nehmen).
+function pickLastRank(arr: number[] | undefined): number | null {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  // salesRanks-Format: [timestamp, rank, timestamp, rank, ...]
+  for (let i = arr.length - 1; i >= 1; i -= 2) {
+    const rank = arr[i];
+    if (typeof rank === "number" && rank > 0) return rank;
+  }
+  return null;
+}
+
+function pickBookBsr(p: KeepaRawProduct): number | null {
+  // Fuer den 50.000er-Cursor ist der Buecher-DE-Root-Rang massgeblich.
+  const bookRootRank = pickLastRank(p.salesRanks?.[String(CATEGORY_BOOKS_DE)]);
+  if (bookRootRank !== null) return bookRootRank;
+
+  const fromStats = p.stats?.current?.[SALES_INDEX];
+  if (typeof fromStats === "number" && fromStats > 0) return fromStats;
+
+  // Fallback fuer Produkte ohne Root-Rank: niedrigsten Subkategorie-Rang nehmen.
   if (p.salesRanks && typeof p.salesRanks === "object") {
     let lowest: number | null = null;
     for (const arr of Object.values(p.salesRanks)) {
-      if (!Array.isArray(arr) || arr.length === 0) continue;
-      // salesRanks-Format: [timestamp, rank, timestamp, rank, ...]
-      // Wir nehmen den letzten Rank-Eintrag (letzter bekannter Wert).
-      for (let i = arr.length - 1; i >= 1; i -= 2) {
-        const rank = arr[i];
-        if (typeof rank === "number" && rank > 0) {
-          if (lowest === null || rank < lowest) lowest = rank;
-          break;
-        }
-      }
+      const rank = pickLastRank(arr);
+      if (rank !== null && (lowest === null || rank < lowest)) lowest = rank;
     }
     if (lowest !== null) return lowest;
   }
-  // Fallback: stats.current[SALES_INDEX]
-  const fromStats = p.stats?.current?.[SALES_INDEX];
-  if (typeof fromStats === "number" && fromStats > 0) return fromStats;
+
   return null;
 }
 
@@ -401,7 +408,7 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
         title: p.title ?? null,
         isbn13,
         amazon_price,
-        bsr: pickLowestBsr(p),
+        bsr: pickBookBsr(p),
         monthly_sales:
           typeof p.monthlySold === "number" && p.monthlySold > 0 ? p.monthlySold : null,
         image_amazon: extractFirstImageUrl(p.imagesCSV ?? null),
