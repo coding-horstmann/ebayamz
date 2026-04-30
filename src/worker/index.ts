@@ -28,6 +28,7 @@ import {
 } from "./sync";
 
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
+const DEFAULT_KEEPA_MAX_ASINS_PER_RUN = 1000;
 
 function parseEnvNumber(name: string, fallback: number): number {
   const v = process.env[name];
@@ -53,7 +54,19 @@ export type WorkerResult = {
 
 async function runKeepaSync(log: LogFn): Promise<number> {
   const minUsedPriceEur = parseEnvNumber("MIN_AMZ_USED_PRICE", 25);
-  const limit = Math.floor(parseEnvNumber("MAX_SYNC_LIMIT", 500));
+  const requestedLimit = Math.max(0, Math.floor(parseEnvNumber("MAX_SYNC_LIMIT", 500)));
+  const keepaMaxAsinsPerRun = Math.max(
+    1,
+    Math.floor(parseEnvNumber("KEEPA_MAX_ASINS_PER_RUN", DEFAULT_KEEPA_MAX_ASINS_PER_RUN))
+  );
+  const limit = Math.min(requestedLimit, keepaMaxAsinsPerRun);
+
+  if (limit < requestedLimit) {
+    log(
+      `[Keepa] MAX_SYNC_LIMIT ${requestedLimit} wird auf ${limit} begrenzt ` +
+        `(KEEPA_MAX_ASINS_PER_RUN), damit der Cron nicht stundenlang in Keepa-429s laeuft.`
+    );
+  }
 
   log(`[Keepa] Finder: min USED ${minUsedPriceEur} EUR, Limit ${limit}, sort BSR asc`);
 

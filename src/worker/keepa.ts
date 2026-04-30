@@ -27,6 +27,10 @@ const CATEGORY_BOOKS_DE = 186606;
 const NEW_INDEX = 1;
 const USED_INDEX = 2;
 const SALES_INDEX = 3;
+const MAX_PRODUCT_BATCH_SIZE = 100;
+const DEFAULT_PRODUCT_BATCH_SIZE = 20;
+const DEFAULT_REFILL_RATE_PER_MINUTE = 20;
+const PRODUCT_TOKEN_SAFETY_BUFFER = 2;
 
 export type KeepaProduct = {
   asin: string;
@@ -84,6 +88,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number, max?: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+
+  const value = Math.floor(parsed);
+  return typeof max === "number" ? Math.min(value, max) : value;
+}
+
+function productBatchSize(): number {
+  return parsePositiveIntegerEnv(
+    "KEEPA_PRODUCT_BATCH_SIZE",
+    DEFAULT_PRODUCT_BATCH_SIZE,
+    MAX_PRODUCT_BATCH_SIZE
+  );
+}
+
 function parseKeepaRateLimit(body: string): KeepaRateLimitResponse | null {
   try {
     const parsed = JSON.parse(body) as KeepaRateLimitResponse;
@@ -100,20 +123,52 @@ function parseKeepaRateLimit(body: string): KeepaRateLimitResponse | null {
   return null;
 }
 
-function keepaRateLimitDelayMs(status: KeepaRateLimitResponse | null, attempt: number): number {
+function refillRatePerMinute(status: KeepaRateLimitResponse | null): number {
+  return typeof status?.refillRate === "number" && status.refillRate > 0
+    ? status.refillRate
+    : DEFAULT_REFILL_RATE_PER_MINUTE;
+}
+
+function tokenSafetyBuffer(requestedTokens: number): number {
+  return Math.max(PRODUCT_TOKEN_SAFETY_BUFFER, Math.ceil(requestedTokens * 0.1));
+}
+
+function tokenShortfall(status: KeepaRateLimitResponse | null, requestedTokens: number): number {
+  if (requestedTokens <= 0 || typeof status?.tokensLeft !== "number") return 0;
+
+  const safety = tokenSafetyBuffer(requestedTokens);
+  if (status.tokensLeft < 0) return Math.abs(status.tokensLeft) + safety;
+
+  return Math.max(0, requestedTokens + safety - status.tokensLeft);
+}
+
+function tokenDelayMs(status: KeepaRateLimitResponse | null, requestedTokens: number): number {
+  const shortfall = tokenShortfall(status, requestedTokens);
+  if (shortfall <= 0) return 0;
+
+  return Math.ceil((shortfall / refillRatePerMinute(status)) * 60_000);
+}
+
+function keepaRateLimitDelayMs(
+  status: KeepaRateLimitResponse | null,
+  attempt: number,
+  requestedTokens: number
+): number {
   const refillDelay =
     typeof status?.refillIn === "number" && status.refillIn > 0 ? status.refillIn : 0;
-  const tokenDebt =
-    typeof status?.tokensLeft === "number" && status.tokensLeft < 0
-      ? Math.abs(status.tokensLeft)
-      : 0;
-  const refillRate =
-    typeof status?.refillRate === "number" && status.refillRate > 0 ? status.refillRate : 0;
-  const debtDelay =
-    tokenDebt > 0 && refillRate > 0 ? Math.ceil((tokenDebt / refillRate) * 60_000) : 0;
   const fallbackDelay = Math.min(5_000 * attempt, 60_000);
 
-  return Math.max(refillDelay, debtDelay, fallbackDelay) + 1_000;
+  return Math.max(refillDelay, tokenDelayMs(status, requestedTokens), fallbackDelay) + 1_000;
+}
+
+function keepaProductPacingDelayMs(
+  status: KeepaRateLimitResponse | null,
+  nextBatchSize: number
+): number {
+  if (nextBatchSize <= 0 || typeof status?.tokensLeft !== "number") return 0;
+
+  const delayMs = tokenDelayMs(status, nextBatchSize);
+  return delayMs > 0 ? delayMs + 1_000 : 0;
 }
 
 function centsToEuro(cents: number | undefined | null): number | null {
@@ -266,8 +321,12 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
   const key = requireKey();
   const out: KeepaProduct[] = [];
 
-  const BATCH = 100;
+  const BATCH = productBatchSize();
   const MAX_PRODUCT_ATTEMPTS = 6;
+  if (asins.length > 0) {
+    console.log(`[Keepa] /product Batch-Groesse: ${BATCH} ASINs pro Call`);
+  }
+
   for (let i = 0; i < asins.length; i += BATCH) {
     const chunk = asins.slice(i, i + BATCH);
     const url =
@@ -292,7 +351,7 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
           }
 
           const status = parseKeepaRateLimit(body);
-          const delayMs = keepaRateLimitDelayMs(status, attempt);
+          const delayMs = keepaRateLimitDelayMs(status, attempt, chunk.length);
           console.warn(
             `[Keepa] /product 429 für Chunk ${i}-${i + chunk.length}; warte ${Math.ceil(
               delayMs / 1000
@@ -356,6 +415,21 @@ export async function keepaFetchProducts(asins: string[]): Promise<KeepaProduct[
           typeof p.monthlySold === "number" && p.monthlySold > 0 ? p.monthlySold : null,
         image_amazon: extractFirstImageUrl(p.imagesCSV ?? null),
       });
+    }
+
+    const nextBatchSize = Math.min(BATCH, Math.max(0, asins.length - (i + BATCH)));
+    const pacingDelayMs = keepaProductPacingDelayMs(json, nextBatchSize);
+    if (pacingDelayMs > 0) {
+      const nextStart = i + BATCH;
+      console.log(
+        `[Keepa] /product Token-Pause ${Math.ceil(
+          pacingDelayMs / 1000
+        )}s vor Chunk ${nextStart}-${nextStart + nextBatchSize} ` +
+          `(tokensLeft=${json.tokensLeft}, refillRate=${
+            json.refillRate ?? DEFAULT_REFILL_RATE_PER_MINUTE
+          }/min)`
+      );
+      await sleep(pacingDelayMs);
     }
   }
 
