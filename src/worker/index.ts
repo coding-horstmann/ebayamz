@@ -26,6 +26,7 @@ import {
   getNextKeepaBsr,
   selectEbayBacklog,
   selectProductsByAsins,
+  setNextKeepaBsr,
   updateEbayForProduct,
   upsertProductsFromKeepa,
 } from "./sync";
@@ -67,25 +68,20 @@ export type WorkerResult = {
 async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> {
   const minUsedPriceEur = parseEnvNumber("MIN_AMZ_USED_PRICE", 25);
   const bsrFrom = await getNextKeepaBsr(BSR_TARGET);
-  const bsrTo = BSR_TARGET;
+  const bsrTo = Math.min(BSR_TARGET, bsrFrom + limit - 1);
+  const nextBsrFrom = bsrTo >= BSR_TARGET ? 1 : bsrTo + 1;
   const knownProductsUpToTarget = await countProductsUpToBsr(BSR_TARGET);
 
-  if (bsrFrom > BSR_TARGET) {
-    log(
-      `[Keepa] BSR-Ziel ${BSR_TARGET} ist erreicht ` +
-        `(${knownProductsUpToTarget} Produkte gespeichert). Kein neuer Finder-Block.`
-    );
-    return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
-  }
-
   log(
-    `[Keepa] Finder: min USED ${minUsedPriceEur} EUR, BSR ${bsrFrom}-${bsrTo}, ` +
-      `Limit ${limit}, sort BSR asc`
+    `[Keepa] Finder: min USED ${minUsedPriceEur} EUR, BSR-Fenster ${bsrFrom}-${bsrTo}, ` +
+      `naechster Start ${nextBsrFrom}, gespeicherte Produkte bis Ziel ${knownProductsUpToTarget}`
   );
 
   const asins = await keepaFindAsins({ minUsedPriceEur, limit, bsrFrom, bsrTo });
   log(`[Keepa] Gefundene ASINs: ${asins.length}`);
   if (asins.length === 0) {
+    await setNextKeepaBsr(nextBsrFrom, BSR_TARGET);
+    log(`[Keepa] Keine ASINs im Fenster; Cursor springt auf BSR ${nextBsrFrom}`);
     return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
   }
 
@@ -102,6 +98,8 @@ async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> 
 
   const upserted = await upsertProductsFromKeepa(products);
   log(`[Keepa] Upserts in Supabase: ${upserted}`);
+  await setNextKeepaBsr(nextBsrFrom, BSR_TARGET);
+  log(`[Keepa] Cursor gespeichert: naechster Lauf startet bei BSR ${nextBsrFrom}`);
   return { upserted, productAsins, bsrFrom, bsrTo, knownProductsUpToTarget };
 }
 

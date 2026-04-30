@@ -16,6 +16,11 @@ import type { KeepaProduct } from "./keepa";
 
 const BSR_TARGET = 50000;
 const PRODUCT_RETENTION_DAYS = 30;
+const KEEPA_BSR_CURSOR_KEY = "keepa_bsr_cursor";
+
+type KeepaBsrCursor = {
+  next_bsr_from?: number;
+};
 
 /**
  * Speichert (Upsert) die von Keepa gelieferten Produkte anhand der ASIN.
@@ -56,28 +61,56 @@ export async function upsertProductsFromKeepa(products: KeepaProduct[]): Promise
   return total;
 }
 
+function normalizeBsrCursor(value: unknown, maxBsr: number): number {
+  if (!value || typeof value !== "object") return 1;
+  const next = (value as KeepaBsrCursor).next_bsr_from;
+  if (typeof next !== "number" || !Number.isFinite(next)) return 1;
+  if (next < 1 || next > maxBsr) return 1;
+  return Math.floor(next);
+}
+
+function workerStateError(errorMessage: string): Error {
+  return new Error(
+    `[Sync] worker_state fehlt oder ist nicht lesbar: ${errorMessage}. ` +
+      "Bitte supabase/migrations/002_worker_state.sql einmal im Supabase SQL Editor ausfuehren."
+  );
+}
+
 /**
- * Fortschritt fuer den Keepa-Aufbau: hoechster gespeicherter BSR + 1.
- * Dadurch laeuft der naechste Finder-Lauf nicht wieder bei BSR 1 los.
+ * Persistenter Keepa-Fortschritt. Nach BSR 50.000 springt der Cursor wieder auf 1.
  */
 export async function getNextKeepaBsr(maxBsr = BSR_TARGET): Promise<number> {
   const sb = getSupabase();
   const { data, error } = await sb
-    .from("products")
-    .select("bsr")
-    .not("bsr", "is", null)
-    .lte("bsr", maxBsr)
-    .order("bsr", { ascending: false })
-    .limit(1);
+    .from("worker_state")
+    .select("value")
+    .eq("key", KEEPA_BSR_CURSOR_KEY)
+    .maybeSingle();
 
   if (error) {
-    console.error("[Sync] BSR-Fortschritt konnte nicht gelesen werden:", error.message);
-    return 1;
+    throw workerStateError(error.message);
   }
 
-  const maxKnownBsr = (data?.[0] as { bsr?: number } | undefined)?.bsr;
-  if (typeof maxKnownBsr !== "number" || maxKnownBsr < 1) return 1;
-  return Math.min(maxKnownBsr + 1, maxBsr + 1);
+  return normalizeBsrCursor((data as { value?: unknown } | null)?.value, maxBsr);
+}
+
+export async function setNextKeepaBsr(nextBsrFrom: number, maxBsr = BSR_TARGET): Promise<void> {
+  const sb = getSupabase();
+  const next = nextBsrFrom < 1 || nextBsrFrom > maxBsr ? 1 : Math.floor(nextBsrFrom);
+  const { error } = await sb
+    .from("worker_state")
+    .upsert(
+      {
+        key: KEEPA_BSR_CURSOR_KEY,
+        value: { next_bsr_from: next },
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: "key" }
+    );
+
+  if (error) {
+    throw workerStateError(error.message);
+  }
 }
 
 export async function countProductsUpToBsr(maxBsr = BSR_TARGET): Promise<number> {

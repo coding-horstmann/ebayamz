@@ -32,3 +32,9 @@ create index if not exists products_roi_pct_idx      on products (roi_pct desc);
 create index if not exists products_profit_euro_idx  on products (profit_euro desc);
 create index if not exists products_bsr_idx          on products (bsr);
 create index if not exists products_last_checked_idx on products (last_checked);
+
+create table if not exists worker_state (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz default now()
+);

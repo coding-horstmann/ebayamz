@@ -32,7 +32,7 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 | `SUPABASE_URL`              | Supabase Projekt-URL                                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-Role-Key (Server-only!)                                      |
 | `MIN_AMZ_USED_PRICE`        | Mindest-USED-Preis EUR für neue ASINs, Default `25`                  |
-| `MAX_SYNC_LIMIT`            | Neue Keepa-ASINs und eBay-Abgleiche pro Lauf, Default `4000`         |
+| `MAX_SYNC_LIMIT`            | BSR-Fenstergroesse und eBay-Abgleiche pro Lauf, Default `4000`       |
 | `BOOKSCOUT_USER`            | Basic-Auth-Username fürs Frontend, Default `admin`                   |
 | `BOOKSCOUT_PASSWORD`        | Basic-Auth-Passwort. **Leer = keine Auth** (Seite öffentlich)        |
 
@@ -41,9 +41,9 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 ## 3. Worker-Ablauf
 
 1. **Keepa Sync:** Product Finder (`domain=3`, Kategorie `186606 – Bücher DE`,
-   `current_USED_gte`, sortiert nach BSR aufsteigend) startet beim höchsten
-   gespeicherten BSR + 1 und holt bis zu `MAX_SYNC_LIMIT` neue ASINs bis
-   maximal BSR `50000`.
+   `current_USED_gte`, sortiert nach BSR aufsteigend) startet beim Cursor aus
+   `worker_state` und holt das nächste `MAX_SYNC_LIMIT`-BSR-Fenster bis
+   maximal BSR `50000`. Nach BSR `50000` springt der Cursor wieder auf BSR `1`.
 2. **eBay Scan:** Der gerade geladene Keepa-Block wird direkt mit eBay
    abgeglichen. Freie Slots bis `MAX_SYNC_LIMIT` werden mit altem Backlog
    aufgefüllt.
@@ -110,6 +110,12 @@ Start-Command setzen, damit nicht versehentlich nur Next.js gestartet wird.
    - Nur Web zusätzlich:
      `BOOKSCOUT_USER`, `BOOKSCOUT_PASSWORD` (optional).
 
+6. **Supabase Migration**
+   - Einmalig `supabase/migrations/002_worker_state.sql` im Supabase SQL Editor
+     ausfuehren. Das legt nur die kleine Tabelle `worker_state` an.
+   - Das JSON in `worker_state.value` schreibt der Worker automatisch; dort
+     muss nichts manuell eingefuegt werden.
+
 Warum das wichtig ist:
 Wenn der Cron-Service als Start-Command `npm run build && npm start` hat,
 dann startet um 03:00 Uhr nur ein Webserver. Der eigentliche Job
@@ -153,7 +159,8 @@ supabase/
   „nicht verfügbar" und wird übersprungen.
 - Fuer das Ziel "50.000 ASINs in 14 Tagen" bei taeglichem Railway-Cron:
   `MAX_SYNC_LIMIT=4000`. Der Worker macht dann pro Lauf den naechsten
-  BSR-Block und gleicht diesen Block direkt mit eBay ab.
+  BSR-Block, gleicht diesen Block direkt mit eBay ab und faengt nach BSR
+  `50000` wieder bei BSR `1` an.
 - Farblogik in der Tabelle:
   - Profit > 10 € **und** ROI > 100 % → grüner Hintergrund.
   - Profit 5–10 € → gelber Hintergrund.
