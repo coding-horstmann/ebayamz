@@ -23,6 +23,7 @@ export type ProductRow = {
   ebay_shipping: number | null;
   ebay_url: string | null;
   ebay_condition: "NEW" | "USED" | null;
+  ebay_buying_option: "FIXED_PRICE" | "AUCTION" | null;
   bsr: number | null;
   monthly_sales: number | null;
   profit_euro: number | null;
@@ -46,6 +47,7 @@ export type ProductInsert = {
   ebay_shipping?: number | null;
   ebay_url?: string | null;
   ebay_condition?: "NEW" | "USED" | null;
+  ebay_buying_option?: "FIXED_PRICE" | "AUCTION" | null;
   bsr?: number | null;
   monthly_sales?: number | null;
   last_checked?: string | null;

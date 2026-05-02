@@ -32,6 +32,7 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 | `SUPABASE_URL`              | Supabase Projekt-URL                                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-Role-Key (Server-only!)                                      |
 | `MIN_AMZ_USED_PRICE`        | Mindest-Amazonpreis EUR fuer gespeicherte/scannbare Produkte, Default `25` |
+| `KEEPA_BSR_TARGET`          | Bis zu welchem Amazon-BSR der Worker rotiert, Default `50000`        |
 | `MAX_SYNC_LIMIT`            | BSR-Fenstergroesse und eBay-Abgleiche pro Lauf, Default `4000`       |
 | `BOOKSCOUT_USER`            | Basic-Auth-Username fürs Frontend, Default `admin`                   |
 | `BOOKSCOUT_PASSWORD`        | Basic-Auth-Passwort. **Leer = keine Auth** (Seite öffentlich)        |
@@ -43,12 +44,12 @@ Online-Arbitrage-Tool für gebrauchte Bücher: Erkennt Preisdifferenzen zwischen
 1. **Keepa Sync:** Product Finder (`domain=3`, Kategorie `186606 – Bücher DE`,
    `current_USED_gte`, sortiert nach BSR aufsteigend) startet beim Cursor aus
    `worker_state` und holt das nächste `MAX_SYNC_LIMIT`-BSR-Fenster bis
-   maximal BSR `50000`. Nach BSR `50000` springt der Cursor wieder auf BSR `1`.
+   maximal `KEEPA_BSR_TARGET`. Danach springt der Cursor wieder auf BSR `1`.
 2. **eBay Scan:** Der gerade geladene Keepa-Block wird direkt mit eBay
    abgeglichen. Freie Slots bis `MAX_SYNC_LIMIT` werden mit altem Backlog
    aufgefüllt.
-3. **eBay Suche:** Für jedes Produkt das günstigste passende `FIXED_PRICE`
-   Angebot (Versand DE) suchen. Rate-Limit:
+3. **eBay Suche:** Für jedes Produkt das günstigste passende `FIXED_PRICE`-
+   oder `AUCTION`-Angebot (Versand DE) suchen. Rate-Limit:
    `EBAY_API_DELAY_MS` zwischen Calls, exponentieller Backoff bei 429. Nach
    5× 429 hintereinander bricht der Worker ab.
 4. **Abschluss-Log:** Scan-Anzahl, Treffer, Deals mit Profit > 3 €, Laufzeit.
@@ -106,13 +107,16 @@ Start-Command setzen, damit nicht versehentlich nur Next.js gestartet wird.
    - Beide Services brauchen:
      `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_MARKETPLACE_ID`,
      `EBAY_API_DELAY_MS`, `KEEPA_API_KEY`, `SUPABASE_URL`,
-     `SUPABASE_SERVICE_ROLE_KEY`, `MIN_AMZ_USED_PRICE`, `MAX_SYNC_LIMIT`.
+     `SUPABASE_SERVICE_ROLE_KEY`, `MIN_AMZ_USED_PRICE`, `KEEPA_BSR_TARGET`,
+     `MAX_SYNC_LIMIT`.
    - Nur Web zusätzlich:
      `BOOKSCOUT_USER`, `BOOKSCOUT_PASSWORD` (optional).
 
 6. **Supabase Migration**
    - Einmalig `supabase/migrations/002_worker_state.sql` im Supabase SQL Editor
      ausfuehren. Das legt nur die kleine Tabelle `worker_state` an.
+   - Danach `supabase/migrations/003_ebay_buying_option.sql` ausfuehren. Das
+     speichert, ob der eBay-Treffer Festpreis oder Auktion ist.
    - Das JSON in `worker_state.value` schreibt der Worker automatisch; dort
      muss nichts manuell eingefuegt werden.
 
@@ -161,9 +165,10 @@ supabase/
   nimmt den niedrigeren gueltigen Preis aus USED und NEW und speichert/scannt
   das Produkt nur, wenn dieser Preis den Mindestwert erreicht.
 - Fuer das Ziel "50.000 ASINs in 14 Tagen" bei taeglichem Railway-Cron:
-  `MAX_SYNC_LIMIT=4000`. Der Worker macht dann pro Lauf den naechsten
-  BSR-Block, gleicht diesen Block direkt mit eBay ab und faengt nach BSR
-  `50000` wieder bei BSR `1` an.
+  `KEEPA_BSR_TARGET=50000` und `MAX_SYNC_LIMIT=4000`. Der Worker macht dann
+  pro Lauf den naechsten BSR-Block, gleicht diesen Block direkt mit eBay ab
+  und faengt nach dem Ziel wieder bei BSR `1` an. Fuer 100.000 entsprechend
+  `KEEPA_BSR_TARGET=100000` setzen.
 - Farblogik in der Tabelle:
   - Profit > 10 € **und** ROI > 100 % → grüner Hintergrund.
   - Profit 5–10 € → gelber Hintergrund.

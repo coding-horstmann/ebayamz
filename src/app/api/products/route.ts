@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
   const minRoi = num(searchParams.get("minRoi"), 50);
   const maxBsr = num(searchParams.get("maxBsr"), 500000);
   const minSales = num(searchParams.get("minSales"), 0);
+  const buyingOption = searchParams.get("buyingOption");
   const page = Math.max(0, Math.floor(num(searchParams.get("page"), 0)));
 
   const from = page * PAGE_SIZE;
@@ -40,6 +41,11 @@ export async function GET(req: NextRequest) {
 
     if (minSales > 0) {
       query = query.gte("monthly_sales", minSales);
+    }
+    if (buyingOption === "auction") {
+      query = query.eq("ebay_buying_option", "AUCTION");
+    } else if (buyingOption === "fixed") {
+      query = query.eq("ebay_buying_option", "FIXED_PRICE");
     }
 
     const { data, error, count } = await query;

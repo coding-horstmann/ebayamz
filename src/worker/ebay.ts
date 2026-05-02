@@ -13,6 +13,7 @@ const SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export type EbayConditionCategory = "NEW" | "USED";
+export type EbayBuyingOption = "FIXED_PRICE" | "AUCTION";
 
 export type EbayHit = {
   price: number;
@@ -21,6 +22,8 @@ export type EbayHit = {
   imageUrl: string | null;
   /** Kategorisierung für UI/DB: "NEW" bei Condition 1000/1500, sonst "USED". */
   condition: EbayConditionCategory;
+  /** Angebotsart: Sofortkauf oder Auktion. */
+  buyingOption: EbayBuyingOption;
   /** Original-Condition-Text von eBay (z.B. "Neu", "Gebraucht", "Sehr gut") */
   conditionText: string | null;
   /** Numerische eBay-Condition-ID (1000, 1500, 3000, 4000, 5000) */
@@ -60,6 +63,7 @@ type EbayItemSummary = {
   thumbnailImages?: Array<{ imageUrl?: string }>;
   condition?: string;
   conditionId?: string | number;
+  buyingOptions?: Array<string>;
 };
 
 type EbaySearchResponse = {
@@ -249,6 +253,7 @@ function itemToHit(item: EbayItemSummary): EbayHit | null {
 
   const category: EbayConditionCategory =
     conditionId !== null && NEW_CONDITION_IDS.has(conditionId) ? "NEW" : "USED";
+  const buyingOption = item.buyingOptions?.includes("AUCTION") ? "AUCTION" : "FIXED_PRICE";
 
   return {
     price,
@@ -256,6 +261,7 @@ function itemToHit(item: EbayItemSummary): EbayHit | null {
     itemWebUrl: item.itemWebUrl ?? null,
     imageUrl,
     condition: category,
+    buyingOption,
     conditionText: item.condition ?? null,
     conditionId,
   };
@@ -267,7 +273,7 @@ function itemToHit(item: EbayItemSummary): EbayHit | null {
  * `EBAY_ACCEPTED_CONDITION_IDS`. Refurbished (2000/2500) und Acceptable (6000)
  * sind ausgeschlossen.
  *
- * Sofortkauf (FIXED_PRICE), Versand Deutschland, sortiert nach
+ * Sofortkauf (FIXED_PRICE) und Auktionen (AUCTION), Versand Deutschland, sortiert nach
  * Preis + Versand aufsteigend. Gibt `null` zurück, wenn nichts Passendes da ist.
  *
  * Wirft `EbayRateLimitError` bei HTTP 429.
@@ -278,7 +284,7 @@ export async function searchCheapestBook(opts: SearchOpts): Promise<EbayHit | nu
 
   const conditionFilter = EBAY_ACCEPTED_CONDITION_IDS.join("|");
   const commonParams = {
-    filter: `conditionIds:{${conditionFilter}},buyingOptions:{FIXED_PRICE},deliveryCountry:DE`,
+    filter: `conditionIds:{${conditionFilter}},buyingOptions:{FIXED_PRICE|AUCTION},deliveryCountry:DE`,
     sort: "pricePlusShipping",
     limit: "10",
   };

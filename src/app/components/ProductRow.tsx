@@ -140,6 +140,22 @@ export default function ProductRow({ product: p }: { product: ProductRowType }) 
                 {p.ebay_condition === "NEW" ? "Neu" : "Gebr."}
               </span>
             )}
+            {p.ebay_buying_option && (
+              <span
+                className={
+                  p.ebay_buying_option === "AUCTION"
+                    ? "rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700"
+                    : "rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                }
+                title={
+                  p.ebay_buying_option === "AUCTION"
+                    ? "eBay-Angebotsart: Auktion"
+                    : "eBay-Angebotsart: Festpreis"
+                }
+              >
+                {p.ebay_buying_option === "AUCTION" ? "Auktion" : "Festpreis"}
+              </span>
+            )}
             {p.ebay_url ? (
               <a
                 href={p.ebay_url}

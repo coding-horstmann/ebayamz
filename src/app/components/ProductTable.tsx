@@ -22,7 +22,7 @@ export default function ProductTable({ filters }: { filters: Filters }) {
 
   const filtersKey = useMemo(
     () =>
-      `${filters.minProfit}|${filters.minRoi}|${filters.maxBsr}|${filters.minSales}`,
+      `${filters.minProfit}|${filters.minRoi}|${filters.maxBsr}|${filters.minSales}|${filters.buyingOption}`,
     [filters]
   );
 
@@ -36,6 +36,7 @@ export default function ProductTable({ filters }: { filters: Filters }) {
           minRoi: String(filters.minRoi),
           maxBsr: String(filters.maxBsr),
           minSales: String(filters.minSales),
+          buyingOption: filters.buyingOption,
           page: String(pageToLoad),
         });
         const res = await fetch(`/api/products?${params.toString()}`, {

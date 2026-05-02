@@ -13,6 +13,7 @@ create table if not exists products (
   ebay_shipping   numeric(10,2),
   ebay_url        text,
   ebay_condition  text check (ebay_condition in ('NEW','USED')),
+  ebay_buying_option text check (ebay_buying_option in ('FIXED_PRICE','AUCTION')),
   bsr             integer,
   monthly_sales   integer,
   profit_euro     numeric(10,2) generated always as (

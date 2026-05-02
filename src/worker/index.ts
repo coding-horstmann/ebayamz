@@ -32,7 +32,7 @@ import {
 } from "./sync";
 
 const MAX_CONSECUTIVE_RATE_LIMITS = 5;
-const BSR_TARGET = 50000;
+const DEFAULT_BSR_TARGET = 50000;
 const MAX_KEEPA_FINDER_LIMIT = 10000;
 
 function parseEnvNumber(name: string, fallback: number): number {
@@ -65,12 +65,16 @@ export type WorkerResult = {
   errors: string[];
 };
 
-async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> {
+async function runKeepaSync(
+  log: LogFn,
+  limit: number,
+  bsrTarget: number
+): Promise<KeepaSyncStats> {
   const minUsedPriceEur = parseEnvNumber("MIN_AMZ_USED_PRICE", 25);
-  const bsrFrom = await getNextKeepaBsr(BSR_TARGET);
-  const bsrTo = Math.min(BSR_TARGET, bsrFrom + limit - 1);
-  const nextBsrFrom = bsrTo >= BSR_TARGET ? 1 : bsrTo + 1;
-  const knownProductsUpToTarget = await countProductsUpToBsr(BSR_TARGET);
+  const bsrFrom = await getNextKeepaBsr(bsrTarget);
+  const bsrTo = Math.min(bsrTarget, bsrFrom + limit - 1);
+  const nextBsrFrom = bsrTo >= bsrTarget ? 1 : bsrTo + 1;
+  const knownProductsUpToTarget = await countProductsUpToBsr(bsrTarget);
 
   log(
     `[Keepa] Finder: min USED ${minUsedPriceEur} EUR, BSR-Fenster ${bsrFrom}-${bsrTo}, ` +
@@ -80,7 +84,7 @@ async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> 
   const asins = await keepaFindAsins({ minUsedPriceEur, limit, bsrFrom, bsrTo });
   log(`[Keepa] Gefundene ASINs: ${asins.length}`);
   if (asins.length === 0) {
-    await setNextKeepaBsr(nextBsrFrom, BSR_TARGET);
+    await setNextKeepaBsr(nextBsrFrom, bsrTarget);
     log(`[Keepa] Keine ASINs im Fenster; Cursor springt auf BSR ${nextBsrFrom}`);
     return { upserted: 0, productAsins: [], bsrFrom, bsrTo, knownProductsUpToTarget };
   }
@@ -98,7 +102,7 @@ async function runKeepaSync(log: LogFn, limit: number): Promise<KeepaSyncStats> 
 
   const upserted = await upsertProductsFromKeepa(products);
   log(`[Keepa] Upserts in Supabase: ${upserted}`);
-  await setNextKeepaBsr(nextBsrFrom, BSR_TARGET);
+  await setNextKeepaBsr(nextBsrFrom, bsrTarget);
   log(`[Keepa] Cursor gespeichert: naechster Lauf startet bei BSR ${nextBsrFrom}`);
   return { upserted, productAsins, bsrFrom, bsrTo, knownProductsUpToTarget };
 }
@@ -113,13 +117,15 @@ type EbayScanStats = {
 async function runEbayScan(
   log: LogFn,
   preferredAsins: string[],
-  limit: number
+  limit: number,
+  bsrTarget: number
 ): Promise<EbayScanStats> {
   const currentBatch = await selectProductsByAsins(preferredAsins, limit);
   const remaining = Math.max(0, limit - currentBatch.length);
   const backlog = await selectEbayBacklog(
     remaining,
-    currentBatch.map((p) => p.asin)
+    currentBatch.map((p) => p.asin),
+    bsrTarget
   );
   const candidates = [...currentBatch, ...backlog].slice(0, limit);
   log(
@@ -208,17 +214,21 @@ export async function runWorker(logger?: LogFn): Promise<WorkerResult> {
   log(`[Worker] Start ${new Date(startedAt).toISOString()}`);
   const requestedLimit = Math.max(1, Math.floor(parseEnvNumber("MAX_SYNC_LIMIT", 4000)));
   const runLimit = Math.min(requestedLimit, MAX_KEEPA_FINDER_LIMIT);
+  const bsrTarget = Math.max(1, Math.floor(parseEnvNumber("KEEPA_BSR_TARGET", DEFAULT_BSR_TARGET)));
   if (runLimit < requestedLimit) {
     log(
       `[Worker] MAX_SYNC_LIMIT ${requestedLimit} wird auf ${runLimit} begrenzt ` +
         `(Keepa Finder Maximum pro Lauf).`
     );
   }
+  if (bsrTarget !== DEFAULT_BSR_TARGET) {
+    log(`[Worker] KEEPA_BSR_TARGET=${bsrTarget}`);
+  }
 
   let keepaUpserts = 0;
   let keepaProductAsins: string[] = [];
   try {
-    const keepa = await runKeepaSync(log, runLimit);
+    const keepa = await runKeepaSync(log, runLimit, bsrTarget);
     keepaUpserts = keepa.upserted;
     keepaProductAsins = keepa.productAsins;
   } catch (err) {
@@ -229,7 +239,7 @@ export async function runWorker(logger?: LogFn): Promise<WorkerResult> {
 
   let stats: EbayScanStats = { scanned: 0, hits: 0, deals: 0, aborted: false };
   try {
-    stats = await runEbayScan(log, keepaProductAsins, runLimit);
+    stats = await runEbayScan(log, keepaProductAsins, runLimit, bsrTarget);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`eBay-Scan: ${msg}`);

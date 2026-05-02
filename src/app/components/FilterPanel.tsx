@@ -8,6 +8,7 @@ export type Filters = {
   minRoi: number;
   maxBsr: number;
   minSales: number;
+  buyingOption: "all" | "fixed" | "auction";
 };
 
 export default function FilterPanel({ initial }: { initial: Filters }) {
@@ -19,6 +20,7 @@ export default function FilterPanel({ initial }: { initial: Filters }) {
   const [minRoi, setMinRoi] = useState(initial.minRoi);
   const [maxBsr, setMaxBsr] = useState(initial.maxBsr);
   const [minSales, setMinSales] = useState(initial.minSales);
+  const [buyingOption, setBuyingOption] = useState(initial.buyingOption);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,6 +29,7 @@ export default function FilterPanel({ initial }: { initial: Filters }) {
     params.set("minRoi", String(minRoi));
     params.set("maxBsr", String(maxBsr));
     params.set("minSales", String(minSales));
+    params.set("buyingOption", buyingOption);
     startTransition(() => {
       router.push(`/?${params.toString()}`);
       router.refresh();
@@ -36,7 +39,7 @@ export default function FilterPanel({ initial }: { initial: Filters }) {
   return (
     <form
       onSubmit={onSubmit}
-      className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5"
+      className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-6"
     >
       <Field
         label="Mindest-Profit (€)"
@@ -66,6 +69,18 @@ export default function FilterPanel({ initial }: { initial: Filters }) {
         step="1"
         min={0}
       />
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-slate-600">eBay-Art</span>
+        <select
+          value={buyingOption}
+          onChange={(e) => setBuyingOption(e.target.value as Filters["buyingOption"])}
+          className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+        >
+          <option value="all">Beides</option>
+          <option value="auction">Nur Auktionen</option>
+          <option value="fixed">Nur Festpreis</option>
+        </select>
+      </label>
       <div className="flex items-end">
         <button
           type="submit"

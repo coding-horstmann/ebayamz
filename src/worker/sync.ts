@@ -161,7 +161,8 @@ export async function selectProductsByAsins(
 
 export async function selectEbayBacklog(
   limit: number,
-  excludeAsins: string[] = []
+  excludeAsins: string[] = [],
+  maxBsr = BSR_TARGET
 ): Promise<ProductRow[]> {
   if (limit <= 0) return [];
   const sb = getSupabase();
@@ -171,7 +172,7 @@ export async function selectEbayBacklog(
     .from("products")
     .select("*")
     .not("bsr", "is", null)
-    .lte("bsr", BSR_TARGET)
+    .lte("bsr", maxBsr)
     .order("last_checked", { ascending: true, nullsFirst: true })
     .order("bsr", { ascending: true, nullsFirst: false })
     .limit(limit + excluded.length);
@@ -198,6 +199,7 @@ export async function updateEbayForProduct(
     itemWebUrl: string | null;
     imageUrl: string | null;
     condition: "NEW" | "USED";
+    buyingOption: "FIXED_PRICE" | "AUCTION";
   } | null
 ): Promise<void> {
   const sb = getSupabase();
@@ -208,6 +210,7 @@ export async function updateEbayForProduct(
         ebay_url: hit.itemWebUrl,
         image_ebay: hit.imageUrl,
         ebay_condition: hit.condition,
+        ebay_buying_option: hit.buyingOption,
         last_checked: new Date().toISOString(),
       }
     : {
@@ -215,6 +218,7 @@ export async function updateEbayForProduct(
         ebay_shipping: null,
         ebay_url: null,
         ebay_condition: null,
+        ebay_buying_option: null,
         // image_ebay absichtlich nicht zurücksetzen – kann hilfreich bleiben
         last_checked: new Date().toISOString(),
       };
